@@ -1,0 +1,24 @@
+{
+  "name": "北歐森林・人生規劃藍圖",
+  "short_name": "人生藍圖",
+  "description": "由北歐森林引路鹿與暖窩貓咪陪伴的人生規劃、日常筆記與跨領域關聯藍圖",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#F6F3EA",
+  "theme_color": "#5F7464",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "./apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

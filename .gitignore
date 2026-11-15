@@ -1,0 +1,9 @@
+# 忽略 data/ 指定資料夾內的所有個人資料、金鑰與瀏覽器設定檔
+# 讓此公開 Repo 僅保留純淨的 App 架構與無個資的範例模板
+data/*
+!data/README.md
+!data/life_blueprint.example.json
+
+.vs/
+*.pdb
+.DS_Store

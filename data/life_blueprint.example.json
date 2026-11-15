@@ -1,0 +1,140 @@
+{
+  "version": "1.0",
+  "settings": {
+    "apiKey": "",
+    "model": "gemini-3.8-flash",
+    "userName": "旅人"
+  },
+  "aiOverview": {
+    "lastAnalyzedAt": "預設範例藍圖（無個人資料）",
+    "forestSummary": "目前的森林藍圖呈現溫暖而向內扎根的節奏。「自我成長」中的情緒覺察與傾聽練習，正像樹根一樣默默滋養著「伴侶關係」裡的關心與親密度；而「娛樂」中的自然散步則為繁忙的生活提供了喘息空間。",
+    "harmonyScore": 78
+  },
+  "pillars": [
+    {
+      "id": "pillar-partner",
+      "title": "伴侶關係",
+      "subtitle": "在日常細節裡練習溫柔與深度連結",
+      "guardian": "cat_pair",
+      "color": "#C87D65",
+      "bgSoft": "#F6EAE4"
+    },
+    {
+      "id": "pillar-growth",
+      "title": "自我成長",
+      "subtitle": "安定內在節奏，累積知識與心靈彈性",
+      "guardian": "deer",
+      "color": "#5F7464",
+      "bgSoft": "#E7EFE8"
+    },
+    {
+      "id": "pillar-family",
+      "title": "家庭生活",
+      "subtitle": "打造溫暖舒適的北歐避風港與家人連結",
+      "guardian": "cat_cozy",
+      "color": "#B88B4A",
+      "bgSoft": "#F4EFE2"
+    },
+    {
+      "id": "pillar-play",
+      "title": "娛樂與充電",
+      "subtitle": "保留純粹的玩心、好奇與生活美感",
+      "guardian": "robin",
+      "color": "#6E8898",
+      "bgSoft": "#E6EEF2"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task-care",
+      "pillarId": "pillar-partner",
+      "title": "練習關心對方",
+      "summary": "放下給建議的急躁，練習用好奇心傾聽伴侶每天的感受與小事",
+      "tags": ["傾聽", "日常對話", "同理心"],
+      "enableTracker": true,
+      "tracker": {
+        "goal": "每週至少 3 次在睡前或晚餐時，主動放下手機專注傾聽對方分享 15 分鐘，先同理情緒再給建議。",
+        "selfScore": 7,
+        "selfReflection": "這週有記得先問「你今天累不累、心情如何」，但遇到工作話題時還是偶爾會急著幫忙想辦法。",
+        "aiCompletion": 72,
+        "aiFeedback": "筆記中已建立具體的提問清單，且能覺察到自己「急著給建議」的習慣，這是最關鍵的突破點！",
+        "milestones": [
+          { "id": "m1", "text": "整理 5 個溫暖不具壓力的日常關心提問", "done": true },
+          { "id": "m2", "text": "練習「先重複對方情緒，3 秒後再回應」", "done": true },
+          { "id": "m3", "text": "記住對方提過近期在意的小事並隔天主動關心", "done": false }
+        ]
+      },
+      "notes": [
+        {
+          "id": "note-1",
+          "category": "📚 查到的資訊",
+          "title": "非暴力溝通與伴侶傾聽的三個小技巧",
+          "content": "1. 區分「需要建議」還是「需要陪伴」\n2. 開放式關心取代例行公事\n3. 眼神與放下手邊事",
+          "createdAt": "2026-11-08 20:30"
+        }
+      ]
+    },
+    {
+      "id": "task-mindfulness",
+      "pillarId": "pillar-growth",
+      "title": "情緒覺察與慢活書寫",
+      "summary": "在繁忙日程中留白，察覺自己的壓力訊號與內在需求",
+      "tags": ["正念", "內在穩定", "書寫"],
+      "enableTracker": true,
+      "tracker": {
+        "goal": "每週寫 2 次 5 分鐘自由書寫，辨識自己的疲勞與焦慮來源。",
+        "selfScore": 8,
+        "selfReflection": "開始書寫後，發現自己比較不會把工作上的煩躁帶回家裡。",
+        "aiCompletion": 82,
+        "aiFeedback": "這是整個藍圖的核心穩定器，明顯提升了您在伴侶與家庭互動中的從容度。",
+        "milestones": [
+          { "id": "m7", "text": "準備專屬的睡前呼吸與書寫時段", "done": true },
+          { "id": "m8", "text": "記錄自己的三個常見壓力觸發點", "done": true }
+        ]
+      },
+      "notes": []
+    },
+    {
+      "id": "task-home-vibe",
+      "pillarId": "pillar-family",
+      "title": "居家空間暖心整理",
+      "summary": "不追求進度表的無壓力筆記：收集喜歡的北歐暖光佈置與家常食譜",
+      "tags": ["空間美學", "無壓力紀錄", "料理"],
+      "enableTracker": false,
+      "tracker": { "goal": "", "selfScore": 5, "selfReflection": "", "aiCompletion": null, "aiFeedback": "", "milestones": [] },
+      "notes": []
+    },
+    {
+      "id": "task-nature-walk",
+      "pillarId": "pillar-play",
+      "title": "週末森林步道與底片攝影",
+      "summary": "走進自然觀察光影與小動物，讓大腦離開螢幕徹底放電",
+      "tags": ["自然", "散步", "攝影"],
+      "enableTracker": false,
+      "tracker": { "goal": "", "selfScore": 7, "selfReflection": "", "aiCompletion": 75, "aiFeedback": "", "milestones": [] },
+      "notes": []
+    }
+  ],
+  "connections": [
+    {
+      "id": "conn-1",
+      "fromTaskId": "task-mindfulness",
+      "toTaskId": "task-care",
+      "type": "foundation",
+      "label": "內在穩定支撐傾聽品質",
+      "reason": "在「情緒覺察與慢活書寫」中安頓好自己的焦慮，直接幫助了「練習關心對方」時能保持平靜與同理心。",
+      "strength": 92,
+      "source": "ai"
+    },
+    {
+      "id": "conn-4",
+      "fromTaskId": "task-nature-walk",
+      "toTaskId": "task-mindfulness",
+      "type": "nourish",
+      "label": "自然離線充電恢復覺察力",
+      "reason": "離開螢幕走進森林步道能清空大腦雜訊，為自我成長與情緒反思提供充足的心靈餘裕。",
+      "strength": 84,
+      "source": "ai"
+    }
+  ]
+}

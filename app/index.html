@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="人生藍圖" />
+  <meta name="theme-color" content="#F6F3EA" />
+  <title>北歐森林・人生規劃藍圖 (Nordic Life Blueprint)</title>
+  <link rel="icon" href="./icon.ico" />
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top Navigation & Nordic Header Banner -->
+    <header class="top-header">
+      <div class="brand-area">
+        <div class="brand-emblem" id="headerGuardianIcon"></div>
+        <div class="brand-text">
+          <div class="brand-badge">SCANDINAVIAN LIFE COMPASS ・ PORTABLE EDITION</div>
+          <h1>北歐森林・人生規劃藍圖</h1>
+          <p>由森林引路鹿與暖窩貓咪陪伴，在繁忙生活中梳理重要目標、日常筆記與彼此的隱藏關聯</p>
+        </div>
+      </div>
+
+      <div class="main-nav-tabs" role="tablist">
+        <button class="nav-tab active" data-tab="SplitView" onclick="App.switchMainView('SplitView')">
+          <span class="tab-icon">🧭</span>
+          <span>藍圖與筆記工作台</span>
+        </button>
+        <button class="nav-tab" data-tab="BlueprintOnly" onclick="App.switchMainView('BlueprintOnly')">
+          <span class="tab-icon">🦌</span>
+          <span>全景關聯星圖</span>
+        </button>
+        <button class="nav-tab" data-tab="NotebookOnly" onclick="App.switchMainView('NotebookOnly')">
+          <span class="tab-icon">🐱</span>
+          <span>專注筆記與進度</span>
+        </button>
+      </div>
+
+      <div class="header-actions">
+        <button class="btn btn-ai-primary" onclick="App.openAIAnalysisModal()">
+          <span>✨ AI 鹿與貓分析藍圖</span>
+        </button>
+        <button class="btn btn-soft" onclick="App.openSettingsModal()" title="設定 API Key 與資料備份">
+          <span>⚙️ 設定與資料夾</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Collapsible Nordic Forest Tapestry Banner (with Deer, Cat, Hedgehog, Squirrel, Robin) -->
+    <section class="forest-banner-card" id="forestBannerSection">
+      <div class="forest-banner-Grid">
+        <div class="forest-story-column">
+          <div class="forest-compass-tag">
+            <span class="dot-sage"></span>
+            <span>森林指南針摘要</span>
+            <span class="harmony-pill" id="harmonyScoreBadge">和諧度 78%</span>
+          </div>
+          <p class="forest-summary-text" id="aiForestSummaryText">
+            載入人生藍圖中...
+          </p>
+          <div class="forest-quick-stats" id="quickStatsBar"></div>
+        </div>
+        <div class="forest-illustration-column" id="forestTapestryContainer">
+          <!-- Injected from NordicIllustrations.forestTapestry -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Content Workspace -->
+    <main class="workspace-container" id="workspaceContainer">
+
+      <!-- SECTION A: Interactive Life Blueprint & Connections Graph -->
+      <section class="blueprint-section card-surface" id="blueprintSection">
+        <div class="section-header">
+          <div class="section-title-group">
+            <h2>🦌 人生項目與任務關聯藍圖</h2>
+            <span class="section-subtitle">點選任一項目可點亮「它發射出的關聯線、標籤與連到的項目」；滾輪或左下角按鈕可縮放平移全圖</span>
+          </div>
+          <div class="blueprint-toolbar">
+            <div class="legend-group">
+              <span class="legend-item"><i class="line-dot foundation"></i>基礎支撐</span>
+              <span class="legend-item"><i class="line-dot synergy"></i>相輔相成</span>
+              <span class="legend-item"><i class="line-dot nourish"></i>滋養充電</span>
+            </div>
+            <button class="btn btn-xs btn-outline" onclick="App.openAddConnectionModal()">＋ 手動連結關聯</button>
+            <button class="btn btn-xs btn-ai-subtle" onclick="App.runFullAIAnalysis()">✨ 讓 AI 重新探索關聯</button>
+          </div>
+        </div>
+
+        <div class="blueprint-canvas-wrapper">
+          <div class="blueprint-svg-container" id="blueprintGraphContainer">
+            <!-- Dynamic SVG Graph of Pillars, Tasks, and Curved Connections -->
+          </div>
+
+          <!-- Selected Connection / Insight Floating Drawer inside Graph -->
+          <div class="connection-inspector" id="connectionInspector">
+            <!-- Populated when user clicks a connection or task node -->
+          </div>
+        </div>
+      </section>
+
+      <!-- SECTION B: Pillars Sidebar + Task Detail Studio (Notebook & Optional Tracker) -->
+      <section class="studio-section" id="studioSection">
+        <!-- Left Sidebar: Major Pillars & Tasks List -->
+        <aside class="pillars-sidebar card-surface">
+          <div class="sidebar-block">
+            <div class="sidebar-header">
+              <h3>🌲 人生大項目</h3>
+              <button class="btn-icon-text" onclick="App.openPillarModal()">＋ 新增項目</button>
+            </div>
+            <div class="pillars-list" id="pillarsList"></div>
+          </div>
+
+          <div class="nordic-divider">
+            <span>🍃 細節規劃與任務 🍃</span>
+          </div>
+
+          <div class="sidebar-block tasks-sidebar-block">
+            <div class="sidebar-header">
+              <h3 id="currentPillarTasksHeader">細節任務</h3>
+              <button class="btn-icon-text" onclick="App.openTaskModal()">＋ 新增任務</button>
+            </div>
+            <div class="tasks-list" id="tasksList"></div>
+          </div>
+        </aside>
+
+        <!-- Right Main Area: Active Task Detail (Optional Tracker + Personal Notebook) -->
+        <div class="task-detail-area" id="taskDetailArea">
+          <!-- Dynamically rendered by App.renderActiveTask() -->
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Bottom Status Bar -->
+    <footer class="status-footer">
+      <div class="footer-left">
+        <span class="save-indicator" id="saveStatusText">🟢 已自動儲存至本地 data/life_blueprint.json</span>
+      </div>
+      <div class="footer-right" style="display:flex;align-items:center;gap:14px;">
+        <span>🦌 森林鹿守護遠見藍圖 ・ 🐱 暖窩貓守護日常筆記 ・ 🦔 小刺蝟與小松鼠收集點滴</span>
+        <button type="button" class="subtle-inspector-pill" id="footerAiInspectorBtn" onclick="App.toggleSubtleInspector()" title="點擊展開/收起低調後台模式，檢視 API 呼叫與即時生成過程">
+          <span class="inspector-dot" id="inspectorDot"></span>
+          <span id="inspectorFooterLabel">🐾 幕後呼叫檢視：待機</span>
+        </button>
+      </div>
+    </footer>
+  </div>
+
+  <!-- MODAL 1: Add / Edit Life Pillar (大項目) -->
+  <div class="modal-backdrop hidden" id="pillarModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="pillarModalTitle">新增人生大項目</h3>
+        <button class="modal-close" onclick="App.closeModal('pillarModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="pillarFormId" />
+        <label class="form-label">大項目名稱（例如：伴侶關係、自我成長、家庭、娛樂、健康）</label>
+        <input type="text" class="form-input" id="pillarFormTitle" placeholder="輸入大項目名稱..." />
+
+        <label class="form-label">溫柔副標題 / 核心期許</label>
+        <input type="text" class="form-input" id="pillarFormSubtitle" placeholder="例如：在日常細節裡練習溫柔與深度連結" />
+
+        <label class="form-label">選擇北歐守護動物插圖</label>
+        <div class="guardian-picker" id="pillarGuardianPicker"></div>
+
+        <label class="form-label">北歐自然色調</label>
+        <div class="color-picker-row" id="pillarColorPicker"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger-ghost" id="pillarDeleteBtn" onclick="App.deleteCurrentPillar()">刪除此項目</button>
+        <div class="modal-footer-right">
+          <button class="btn btn-soft" onclick="App.closeModal('pillarModal')">取消</button>
+          <button class="btn btn-primary" onclick="App.savePillarForm()">儲存大項目</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: Add / Edit Task (細節任務) -->
+  <div class="modal-backdrop hidden" id="taskModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="taskModalTitle">新增細節規劃任務</h3>
+        <button class="modal-close" onclick="App.closeModal('taskModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="taskFormId" />
+        <label class="form-label">所屬人生大項目</label>
+        <select class="form-select" id="taskFormPillarId"></select>
+
+        <label class="form-label">任務名稱（例如：練習關心對方、增加親密度）</label>
+        <input type="text" class="form-input" id="taskFormTitle" placeholder="輸入想專注的任務名稱..." />
+
+        <label class="form-label">任務初衷 / 簡短說明</label>
+        <textarea class="form-textarea" id="taskFormSummary" rows="2" placeholder="為什麼這件事對你很重要？"></textarea>
+
+        <label class="form-label">標籤（以逗號分隔，例如：傾聽, 日常對話, 儀式感）</label>
+        <input type="text" class="form-input" id="taskFormTags" placeholder="傾聽, 約會, 習慣..." />
+
+        <div class="toggle-box-field">
+          <label class="switch-label">
+            <input type="checkbox" id="taskFormEnableTracker" checked />
+            <span>🌰 啟用「進度表與自我評分欄位」（可隨時開關，不勾選則為純筆記本模式）</span>
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-soft" onclick="App.closeModal('taskModal')">取消</button>
+        <button class="btn btn-primary" onclick="App.saveTaskForm()">儲存任務</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 3: Add / Edit Note (個人紀錄筆記) -->
+  <div class="modal-backdrop hidden" id="noteModal">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <h3 id="noteModalTitle">🐱 撰寫任務筆記紀錄</h3>
+        <button class="modal-close" onclick="App.closeModal('noteModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="noteFormId" />
+        <div class="form-row-2">
+          <div>
+            <label class="form-label">筆記分類</label>
+            <select class="form-select" id="noteFormCategory">
+              <option value="📚 查到的資訊">📚 查到的資訊（書籍、文章、技巧整理）</option>
+              <option value="🌿 日常實踐紀錄">🌿 日常實踐紀錄（今天試了什麼、發生的小事）</option>
+              <option value="💡 靈感與反思">💡 靈感與反思（自我覺察、新想法）</option>
+            </select>
+          </div>
+          <div>
+            <label class="form-label">筆記標題</label>
+            <input type="text" class="form-input" id="noteFormTitle" placeholder="例如：非暴力溝通的三個小練習..." />
+          </div>
+        </div>
+
+        <label class="form-label">筆記內容（支援多行自由記錄）</label>
+        <textarea class="form-textarea notebook-textarea" id="noteFormContent" rows="8" placeholder="在這裡像寫筆記本一樣，自由記下你查到的資訊、體會或日常練習點滴..."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-soft" onclick="App.closeModal('noteModal')">取消</button>
+        <button class="btn btn-primary" onclick="App.saveNoteForm()">儲存筆記</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 4: Manual / Edit Connection Modal (建立與編輯任務關聯) -->
+  <div class="modal-backdrop hidden" id="connectionModal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="connModalTitle">🦌 建立人生規劃間的關聯</h3>
+        <button class="modal-close" onclick="App.closeModal('connectionModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="connFormId" />
+        <div class="form-row-2">
+          <div>
+            <label class="form-label">起點任務 / 動力來源</label>
+            <select class="form-select" id="connFormFrom"></select>
+          </div>
+          <div>
+            <label class="form-label" style="display:flex;justify-content:space-between;align-items:center;">
+              <span>影響的目標任務</span>
+              <button type="button" class="btn-icon-text" onclick="App.swapConnectionEndpoints()" title="對調起點與目標方向">⇄ 對調方向</button>
+            </label>
+            <select class="form-select" id="connFormTo"></select>
+          </div>
+        </div>
+
+        <label class="form-label">關聯性質</label>
+        <select class="form-select" id="connFormType">
+          <option value="foundation">🌱 基礎支撐（做好 A 能讓 B 更順利穩固）</option>
+          <option value="synergy">✨ 相輔相成（A 與 B 彼此促進、正向循環）</option>
+          <option value="nourish">🍃 滋養充電（A 為 B 提供能量與休息餘裕）</option>
+        </select>
+
+        <label class="form-label">關聯短標題（顯示在藍圖連線上）</label>
+        <input type="text" class="form-input" id="connFormLabel" placeholder="例如：內在穩定支撐傾聽品質" />
+
+        <label class="form-label">為什麼這兩件事互相影響？</label>
+        <textarea class="form-textarea" id="connFormReason" rows="3" placeholder="寫下這兩個任務之間的關聯與啟發..."></textarea>
+
+        <label class="form-label">關聯強度 (<span id="connStrengthVal">85</span>%)</label>
+        <input type="range" min="30" max="100" value="85" class="nordic-slider" id="connFormStrength" oninput="document.getElementById('connStrengthVal').textContent=this.value" />
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-danger-ghost" id="connDeleteInModalBtn" style="display:none" onclick="App.deleteConnFromModal()">刪除此關聯</button>
+        <div class="modal-footer-right">
+          <button class="btn btn-soft" onclick="App.closeModal('connectionModal')">取消</button>
+          <button class="btn btn-primary" id="connSaveBtn" onclick="App.saveConnectionForm()">儲存關聯線</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 5: AI Analysis & Settings Modal (支援 API Key 直連 + Google AI Pro 網頁版橋接) -->
+  <div class="modal-backdrop hidden" id="aiModal">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <h3>✨ 北歐森林 AI 智者 — 關聯與完成度評估</h3>
+        <button class="modal-close" onclick="App.closeModal('aiModal')" title="關閉視窗">✕</button>
+      </div>
+      <!-- Warning Banner shown if user clicks X while AI analysis request is in progress -->
+      <div id="aiCloseWarningBanner" class="ai-close-warning-banner hidden">
+        <div class="warning-text">
+          <strong>⚠️ 警告：AI 分析請求已送出且正在運算中！</strong>
+          <p>森林引路鹿與暖窩貓咪正在等待 Google Gemini 回傳分析結果，現在離開頁面可能會中斷更新。您確定要離開嗎？</p>
+        </div>
+        <div class="warning-actions">
+          <button type="button" class="btn btn-xs btn-primary" onclick="App.dismissCloseWarning()">繼續等待完成</button>
+          <button type="button" class="btn btn-xs btn-danger-ghost" onclick="App.forceCloseAiModal()">仍要離開頁面</button>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="ai-mode-banner">
+          <div class="ai-mode-icon" id="aiModalDeerIcon"></div>
+          <div class="ai-mode-desc">
+            <strong>為什麼需要 AI 協助評估？</strong>
+            <p>人生中的任務往往不是孤立的算術（例如「自我成長的情緒書寫」其實深深影響「伴侶關係的傾聽」）。AI 智者會閱讀您的<strong>所有筆記內容、目標與自我評分</strong>，自動找出跨領域的隱藏關聯，並給出溫暖客觀的完成度評估。</p>
+          </div>
+        </div>
+
+        <div class="ai-tabs-bar">
+          <button class="ai-subtab active" id="tabBtnApi" onclick="App.switchAiTab('api')">⚡ 方式一：Gemini API 自動一鍵分析（推薦）</button>
+          <button class="ai-subtab" id="tabBtnBridge" onclick="App.switchAiTab('bridge')">📋 方式二：搭配您的 Google AI Pro 網頁版對話</button>
+        </div>
+
+        <!-- Mode 1: Direct Gemini API -->
+        <div id="aiTabContentApi" class="ai-tab-panel">
+          <div class="form-row-2">
+            <div>
+              <label class="form-label">Google Gemini API Key（免費申請，儲存在您的本地電腦）</label>
+              <input type="password" class="form-input" id="aiApiKeyInput" placeholder="貼上 AIzaSy... 開頭的 API Key" />
+            </div>
+            <div>
+              <label class="form-label" style="display:flex;justify-content:space-between;align-items:center;">
+                <span>選擇主流 Gemini 模型（已排除過輕量模型）</span>
+                <button type="button" class="btn-icon-text" onclick="App.fetchAvailableModels()">🔄 自動偵測主流模型</button>
+              </label>
+              <select class="form-select" id="aiModelSelect">
+                <option value="gemini-3.8-flash">gemini-3.8-flash 【⭐ 非常夠用・最推薦｜速度與推理兼具】</option>
+                <option value="gemini-3.8-pro">gemini-3.8-pro 【🧠 極度夠用・深度洞察｜適合大量筆記深層推理】</option>
+                <option value="gemini-3.5-pro">gemini-3.5-pro 【🌿 標準夠用・穩定備援｜進階邏輯分析】</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="toggle-box-field" style="margin-top:4px;background:#F4EFE4;padding:10px 14px;border-radius:10px;border:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+            <div style="font-size:12.5px;">
+              <strong>⚡ 思考與生成速度控制（解決新版模型預設思考數分鐘的問題）</strong>
+              <div style="color:var(--ink-secondary);font-size:11.5px;">新版 Gemini 預設會進行數萬字的隱藏深度推理（可能耗時數分鐘）。建議使用「極速直出」或「輕量思考」。</div>
+            </div>
+            <select class="form-select" id="aiThinkingModeSelect" style="width:auto;min-width:260px;">
+              <option value="fast" selected>⚡ 極速直出模式（關閉冗長思考，約 3～8 秒完成）</option>
+              <option value="light">🌿 輕量思考模式（限制短思考並即時顯示推理，約 10～20 秒）</option>
+              <option value="deep">🧠 完整深度思考（模型不限時長深度推理，耗時較久）</option>
+            </select>
+          </div>
+          <div class="helper-box">
+            💡 <strong>如何免費取得 API Key？</strong> 前往 <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Google AI Studio (aistudio.google.com/app/apikey)</a> 登入您的 Google 帳號，點擊 <code>Create API key</code> 即可免費取得，個人日常分析完全在免費額度內！
+          </div>
+
+          <div class="ai-action-row">
+            <button class="btn btn-ai-primary btn-lg" id="btnRunApiAnalysis" onclick="App.executeGeminiApiAnalysis()">
+              ✨ 立即使用 API 分析我的人生藍圖與完成度
+            </button>
+            <button class="btn btn-soft" onclick="App.SaveApiSettingsOnly()">僅儲存金鑰設定</button>
+            <button class="btn btn-xs btn-danger-ghost hidden" id="btnAbortAiCall" onclick="App.abortCurrentAiCall()">⏹️ 中止請求</button>
+          </div>
+          <div id="aiApiStatusBox" class="ai-status-box hidden"></div>
+
+          <!-- Low-profile collapsible trace bar inside AI Modal -->
+          <div class="modal-trace-bar">
+            <div class="modal-trace-header" onclick="App.toggleModalTraceBody()">
+              <div class="trace-header-left">
+                <span class="inspector-dot" id="modalTraceDot"></span>
+                <span id="modalTraceSummary">🐾 低調後台檢視：尚未發送請求</span>
+              </div>
+              <span class="trace-toggle-link" id="modalTraceToggleText">🔍 展開呼叫與即時生成過程 ▾</span>
+            </div>
+            <div id="modalTraceBody" class="modal-trace-body hidden">
+              <div class="trace-metrics-row" id="modalTraceMetrics">
+                <span>模型：<strong>—</strong></span>
+                <span>HTTP：<strong>—</strong></span>
+                <span>耗時：<strong>0.0s</strong></span>
+                <span>已接收：<strong>0 片段 / 0 字元</strong></span>
+              </div>
+              <div class="trace-columns">
+                <div class="trace-col">
+                  <div class="trace-col-title">📡 呼叫階段日誌 (API Call Log)</div>
+                  <pre class="trace-pre" id="modalTraceLog">等待呼叫中...</pre>
+                </div>
+                <div class="trace-col">
+                  <div class="trace-col-title">✍️ 模型即時生成內容串流 (Live Stream)</div>
+                  <pre class="trace-pre" id="modalTraceStream">尚未開始生成...</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mode 2: Web Gemini Pro Copy-Paste Bridge -->
+        <div id="aiTabContentBridge" class="ai-tab-panel hidden">
+          <p class="bridge-intro">
+            如果您想直接使用目前已訂閱的 <strong>Google AI Pro (Gemini Advanced 網頁版)</strong> 而不申請 API Key，只需以下兩步：
+          </p>
+          <div class="bridge-step-box">
+            <strong>步驟 1：</strong> 點擊下方按鈕，程式會將您目前的所有大項目、任務、筆記與自我評分打包成結構化提示詞（Prompt）。
+            <div style="margin-top:8px;">
+              <button class="btn btn-primary" onclick="App.copyPromptForWebGemini()">📋 一鍵複製藍圖分析 Prompt</button>
+              <a href="https://gemini.google.com/app" target="_blank" rel="noopener" class="btn btn-soft" style="text-decoration:none;display:inline-block;margin-left:8px;">🔗 打開 Gemini 網頁版</a>
+            </div>
+          </div>
+
+          <div class="bridge-step-box" style="margin-top:12px;">
+            <strong>步驟 2：</strong> 將 Gemini 網頁版回覆的 JSON 結果貼在下方，點擊「套用至我的人生藍圖」，關聯圖與完成度就會自動更新！
+            <textarea class="form-textarea" id="bridgeJsonInput" rows="5" placeholder="將 Gemini 回覆的 JSON 內容貼在這裡..."></textarea>
+            <button class="btn btn-ai-primary" style="margin-top:8px;" onclick="App.applyBridgeJsonResponse()">✨ 解析並套用至我的人生藍圖</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 6: Portable Settings, Cross-Device Cloud Sync & Backup Modal -->
+  <div class="modal-backdrop hidden" id="settingsModal">
+    <div class="modal-card modal-lg">
+      <div class="modal-header">
+        <h3>⚙️ 跨裝置同步（Windows / MacBook / iPhone）與資料管理</h3>
+        <button class="modal-close" onclick="App.closeModal('settingsModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="portable-info-box">
+          <strong>🔒 架構與個資分離設計（Public App Repo + Private Data Repo）</strong>
+          <p style="margin-top:4px;">
+            • <strong>公開 App 架構 (`Life-Cat-Upgrade`)</strong>：僅包含程式碼與無個資範例，可完全安心設為 <strong>Public</strong> 以開啟免費 GitHub Pages。<br />
+            • <strong>電腦端指定資料夾 (`data/`)</strong>：只要將您的個人資料檔 <code>life_blueprint.json</code> 放入專案下的 <strong><code>data/</code></strong> 資料夾（或將您的私人資料 Repo clone 至 <code>data/</code>），開啟程式即會自動讀取！<br />
+            • <strong>iPhone / 跨裝置同步</strong>：下方可綁定您專屬的 <strong>Private Repo（私人資料倉庫）</strong>，在手機與電腦間安全讀寫個人資料。
+          </p>
+        </div>
+
+        <!-- GitHub Cloud Sync Section -->
+        <div class="portable-info-box" style="background:#F4EFE4;border-color:#D5CFC0;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px;">
+            <strong>☁️ 個人資料 Private Repo 雲端同步（電腦 & iPhone 共用）</strong>
+            <span style="font-size:11.5px;color:var(--sage-primary);font-weight:700;" id="ghSyncStatusBadge">Private Repo 專屬通道</span>
+          </div>
+          <p style="font-size:12px;color:var(--ink-secondary);margin-bottom:10px;">
+            請填寫您用來存放個人資料的 <strong>私人儲存庫 (Private Repo)</strong> 名稱（例如 <code>johnny8dada/Life-Cat-Data</code>）與 GitHub Token（勾選 <code>repo</code> 權限）。拉取後會自動寫入本機 <code>data/life_blueprint.json</code>。
+          </p>
+
+          <div class="form-row-2">
+            <div>
+              <label class="form-label">個人資料 Private Repo (Owner/Repo)</label>
+              <input type="text" class="form-input" id="ghRepoInput" value="johnny8dada/Life-Cat-Data" placeholder="例如：johnny8dada/Life-Cat-Data" />
+            </div>
+            <div>
+              <label class="form-label">GitHub Personal Access Token (ghp_...)</label>
+              <input type="password" class="form-input" id="ghTokenInput" placeholder="貼上 ghp_ 或 github_pat_ 開頭的 Token" />
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-top:10px;">
+            <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer;">
+              <input type="checkbox" id="ghAutoSyncCheckbox" onchange="App.saveGithubSyncConfig()" />
+              <span>🔄 修改資料後自動同步至 Private Repo（推薦開啟）</span>
+            </label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="btn btn-xs btn-soft" onclick="App.saveGithubSyncConfig(true)">💾 儲存設定</button>
+              <button type="button" class="btn btn-xs btn-outline" onclick="App.pullFromGithubCloud()">⬇️ 從 Private Repo 拉取</button>
+              <button type="button" class="btn btn-xs btn-primary" onclick="App.pushToGithubCloud()">⬆️ 推送至 Private Repo</button>
+            </div>
+          </div>
+
+          <div id="ghSyncStatusBox" class="ai-status-box hidden" style="margin-top:10px;"></div>
+        </div>
+
+        <label class="form-label" style="margin-top:4px;">📦 本地指定資料夾 (`data/`) 與手動備份管理</label>
+        <div class="settings-actions-grid">
+          <button class="btn btn-soft" onclick="App.openLocalDataFolder()">📂 打開指定 data 資料夾</button>
+          <button class="btn btn-soft" onclick="App.exportBlueprintJson()">⬇️ 匯出個人資料 (life_blueprint.json)</button>
+          <label class="btn btn-soft file-upload-btn" style="justify-content:center;cursor:pointer;">
+            ⬆️ 載入個人資料 (.json)
+            <input type="file" accept=".json" onchange="App.importBlueprintJson(event)" style="display:none" />
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick="App.closeModal('settingsModal')">完成</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile Bottom Navigation Bar (Visible on iPhone / Mobile Screens) -->
+  <nav class="mobile-bottom-nav" id="mobileBottomNav">
+    <button type="button" class="mobile-nav-item active" data-mobtab="SplitView" onclick="App.switchMainView('SplitView')">
+      <span class="mob-icon">🧭</span>
+      <span>總覽工作台</span>
+    </button>
+    <button type="button" class="mobile-nav-item" data-mobtab="BlueprintOnly" onclick="App.switchMainView('BlueprintOnly')">
+      <span class="mob-icon">🦌</span>
+      <span>星環藍圖</span>
+    </button>
+    <button type="button" class="mobile-nav-item" data-mobtab="NotebookOnly" onclick="App.switchMainView('NotebookOnly')">
+      <span class="mob-icon">🐱</span>
+      <span>筆記與進度</span>
+    </button>
+    <button type="button" class="mobile-nav-item" onclick="App.openAIAnalysisModal()">
+      <span class="mob-icon">✨</span>
+      <span>AI 智者</span>
+    </button>
+    <button type="button" class="mobile-nav-item" onclick="App.openSettingsModal()">
+      <span class="mob-icon">☁️</span>
+      <span>同步設定</span>
+    </button>
+  </nav>
+
+  <!-- Subtle Floating Background AI Inspector Drawer (toggled from footer pill) -->
+  <aside id="subtleInspectorDrawer" class="subtle-inspector-drawer hidden">
+    <div class="subtle-drawer-header">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="inspector-dot" id="drawerTraceDot"></span>
+        <strong>🐾 低調幕後觀察窗（API 呼叫與即時串流）</strong>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <button type="button" class="btn-drawer-mini" onclick="App.clearTraceLogs()">清除紀錄</button>
+        <button type="button" class="btn-drawer-mini" onclick="App.toggleSubtleInspector()">收起 ✕</button>
+      </div>
+    </div>
+    <div class="subtle-drawer-metrics" id="drawerTraceMetrics">
+      <span>狀態：待機中</span>
+    </div>
+    <div class="subtle-drawer-grid">
+      <div>
+        <div class="trace-col-title">📡 呼叫階段日誌</div>
+        <pre class="trace-pre" id="drawerTraceLog">尚無 API 呼叫紀錄。</pre>
+      </div>
+      <div>
+        <div class="trace-col-title">✍️ 即時生成內容串流 (Live Output)</div>
+        <pre class="trace-pre" id="drawerTraceStream">尚無生成內容。</pre>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Toast Notification -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="./illustrations.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
