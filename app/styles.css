@@ -412,27 +412,242 @@ body {
 
 .blueprint-canvas-wrapper {
   display: grid;
-  grid-template-columns: 1fr 330px;
-  gap: 16px;
+  grid-template-columns: 268px 1fr;
+  gap: 14px;
   align-items: stretch;
 }
 
-.blueprint-svg-container {
-  background: radial-gradient(circle at 50% 50%, #FBF9F3 0%, #EFECE1 100%);
+/* Left Sidebar inside Blueprint Graph (Obsidian-style Pillar & Task Explorer) */
+.graph-left-sidebar {
+  background: var(--surface-warm);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  min-height: 360px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 490px;
+  max-height: 490px;
+  overflow: hidden;
+}
+
+.graph-sidebar-header,
+.graph-sidebar-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink-secondary);
+  padding: 2px 4px 8px;
+  border-bottom: 1px dashed var(--border-subtle);
+  margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+/* Scrollable container for all Life Pillars so adding more items NEVER shrinks blocks or font size */
+.graph-pillars-scroll-area {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+  overscroll-behavior: contain;
+}
+
+.graph-pillars-scroll-area::-webkit-scrollbar,
+.graph-pillar-tasks::-webkit-scrollbar {
+  width: 5px;
+}
+
+.graph-pillars-scroll-area::-webkit-scrollbar-track,
+.graph-pillar-tasks::-webkit-scrollbar-track {
+  background: rgba(44, 50, 46, 0.04);
+  border-radius: 99px;
+}
+
+.graph-pillars-scroll-area::-webkit-scrollbar-thumb,
+.graph-pillar-tasks::-webkit-scrollbar-thumb {
+  background: rgba(95, 116, 100, 0.32);
+  border-radius: 99px;
+}
+
+.graph-pillars-scroll-area::-webkit-scrollbar-thumb:hover,
+.graph-pillar-tasks::-webkit-scrollbar-thumb:hover {
+  background: rgba(95, 116, 100, 0.55);
+}
+
+.graph-pillar-group {
+  border-radius: var(--radius-sm);
+  overflow: visible;
+  border: 1px solid transparent;
+  transition: all 0.16s ease;
+  flex-shrink: 0;
+}
+
+.graph-pillar-group.active {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: var(--border-warm);
+  box-shadow: 0 2px 8px rgba(44, 50, 46, 0.05);
+}
+
+.graph-pillar-btn {
+  width: 100%;
+  min-height: 42px;
+  border: none;
+  background: var(--bg-oat);
+  padding: 9px 11px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.graph-pillar-btn:hover {
+  background: var(--bg-birch);
+}
+
+.graph-pillar-group.active .graph-pillar-btn {
+  background: #FFFFFF;
+  font-weight: 700;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+.graph-pillar-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.graph-pillar-name {
+  flex: 1;
+  font-size: 13.5px;
+  line-height: 1.35;
+  color: var(--ink-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.graph-pillar-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-muted);
+  background: rgba(44, 50, 46, 0.06);
+  padding: 2px 8px;
+  border-radius: 99px;
+  flex-shrink: 0;
+}
+
+/* Scrollable expanded task list inside a Pillar — never cuts off when there are many tasks */
+.graph-pillar-tasks {
+  padding: 6px 6px 8px 12px;
+  display: none;
+  flex-direction: column;
+  gap: 5px;
+  border-top: 1px dashed var(--border-subtle);
+  background: rgba(252, 251, 247, 0.85);
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  max-height: 220px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  flex-shrink: 0;
+}
+
+.graph-pillar-tasks.expanded {
+  display: flex;
+}
+
+.graph-task-item {
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.65);
+  min-height: 36px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--ink-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  text-align: left;
+  font-family: inherit;
+  transition: all 0.14s ease;
+  flex-shrink: 0;
+}
+
+.graph-task-bullet {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.graph-task-title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.graph-task-conn-badge {
+  font-size: 10.5px;
+  color: var(--ink-muted);
+  flex-shrink: 0;
+}
+
+.graph-task-item:hover {
+  background: var(--bg-oat);
+  color: var(--ink-primary);
+}
+
+.graph-task-item.active {
+  background: var(--sage-soft);
+  border-color: var(--sage-primary);
+  color: var(--ink-primary);
+  font-weight: 700;
+}
+
+/* Center Obsidian Graph Stage + Right Floating Panel */
+.blueprint-stage {
+  position: relative;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+  min-height: 490px;
+  background:
+    radial-gradient(circle at 38% 50%, rgba(255, 253, 248, 0.92) 0%, rgba(239, 235, 223, 0.95) 100%);
+}
+
+.blueprint-svg-container {
+  width: 100%;
+  height: 490px;
   position: relative;
   overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   user-select: none;
+  background-image: radial-gradient(#D8D2C3 1px, transparent 1px);
+  background-size: 22px 22px;
 }
 
 .blueprint-svg {
   width: 100%;
-  height: 360px;
+  height: 490px;
   display: block;
   cursor: grab;
 }
@@ -441,23 +656,23 @@ body {
 }
 
 .node-svg-group, .conn-svg-group {
-  transition: opacity 0.25s ease;
+  transition: opacity 0.22s ease;
 }
 
 .graph-floating-controls {
   position: absolute;
-  bottom: 10px;
+  bottom: 12px;
   left: 12px;
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(252, 251, 247, 0.88);
-  backdrop-filter: blur(4px);
-  border: 1px solid var(--border-subtle);
+  background: rgba(252, 251, 247, 0.92);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--border-warm);
   border-radius: 999px;
-  padding: 4px 10px;
-  box-shadow: 0 2px 8px rgba(44, 50, 46, 0.06);
-  z-index: 5;
+  padding: 5px 12px;
+  box-shadow: 0 4px 12px rgba(44, 50, 46, 0.08);
+  z-index: 8;
 }
 
 .graph-ctrl-btn {
@@ -480,15 +695,82 @@ body {
   color: var(--sage-primary);
 }
 
-/* Connection Inspector Card */
-.connection-inspector {
-  background: var(--surface-warm);
-  border: 1px solid var(--border-subtle);
+/* Right Floating Inspector Panel over the Graph Canvas */
+.graph-floating-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: 330px;
+  max-width: calc(100% - 24px);
+  background: rgba(252, 251, 247, 0.94);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--border-warm);
   border-radius: var(--radius-md);
-  padding: 16px;
+  box-shadow: 0 10px 28px rgba(44, 50, 46, 0.12);
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
+  overflow-y: auto;
+  z-index: 10;
+  transition: transform 0.22s ease, opacity 0.22s ease;
+}
+
+.connected-block-card {
+  background: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 9px 11px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.connected-block-card:hover {
+  border-color: var(--sage-primary);
+  background: #FAFDFB;
+  transform: translateX(-2px);
+  box-shadow: 0 4px 12px rgba(44, 50, 46, 0.07);
+}
+
+.floating-panel-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.protagonist-detail-card {
+  background: #FFFFFF;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 10px 12px;
+  box-shadow: 0 2px 8px rgba(44, 50, 46, 0.04);
+}
+
+.connected-blocks-list {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.jump-protagonist-pill {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--sage-primary);
+  background: var(--sage-soft);
+  padding: 2px 8px;
+  border-radius: 99px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.14s ease;
+}
+
+.connected-block-card:hover .jump-protagonist-pill {
+  background: var(--sage-primary);
+  color: #FFFFFF;
 }
 
 .inspector-badge {
@@ -571,6 +853,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .pillar-item {
@@ -584,6 +869,7 @@ body {
   cursor: pointer;
   transition: all 0.18s ease;
   position: relative;
+  flex-shrink: 0;
 }
 
 .pillar-item:hover {
@@ -661,6 +947,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .task-nav-card {
@@ -670,6 +959,7 @@ body {
   border: 1.5px solid transparent;
   cursor: pointer;
   transition: all 0.18s ease;
+  flex-shrink: 0;
 }
 
 .task-nav-card:hover {
@@ -1597,7 +1887,30 @@ body {
 
   .blueprint-svg-container {
     min-height: 360px;
+    height: 360px;
     touch-action: none;
+  }
+
+  .blueprint-svg {
+    height: 360px;
+  }
+
+  .graph-left-sidebar {
+    height: auto;
+    max-height: 320px;
+  }
+
+  .graph-pillar-tasks {
+    max-height: 180px;
+  }
+
+  .graph-floating-panel {
+    position: static;
+    width: 100%;
+    max-width: 100%;
+    border-top: 1px solid var(--border-warm);
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    box-shadow: none;
   }
 
   .graph-floating-controls {

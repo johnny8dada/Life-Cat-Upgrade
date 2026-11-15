@@ -74,12 +74,12 @@
     <!-- Main Content Workspace -->
     <main class="workspace-container" id="workspaceContainer">
 
-      <!-- SECTION A: Interactive Life Blueprint & Connections Graph -->
+      <!-- SECTION A: Interactive Obsidian-Style Life Blueprint & Connections Graph -->
       <section class="blueprint-section card-surface" id="blueprintSection">
         <div class="section-header">
           <div class="section-title-group">
             <h2>🦌 人生項目與任務關聯藍圖</h2>
-            <span class="section-subtitle">點選任一項目可點亮「它發射出的關聯線、標籤與連到的項目」；滾輪或左下角按鈕可縮放平移全圖</span>
+            <span class="section-subtitle">由左側選單點選「人生大事項」可將相關方塊點亮置頂；點選「細節任務」或圖中方塊可檢視連線網絡，並在右側浮動面板跳轉主角</span>
           </div>
           <div class="blueprint-toolbar">
             <div class="legend-group">
@@ -93,13 +93,21 @@
         </div>
 
         <div class="blueprint-canvas-wrapper">
-          <div class="blueprint-svg-container" id="blueprintGraphContainer">
-            <!-- Dynamic SVG Graph of Pillars, Tasks, and Curved Connections -->
-          </div>
+          <!-- Left Navigation Sidebar for Graph (Pillars -> Tasks Accordion) -->
+          <aside class="graph-left-sidebar" id="graphLeftSidebar">
+            <!-- Dynamically rendered by App.renderGraphLeftSidebar() -->
+          </aside>
 
-          <!-- Selected Connection / Insight Floating Drawer inside Graph -->
-          <div class="connection-inspector" id="connectionInspector">
-            <!-- Populated when user clicks a connection or task node -->
+          <!-- Center Obsidian-Style Graph Stage + Right Floating Inspector Panel -->
+          <div class="blueprint-stage">
+            <div class="blueprint-svg-container" id="blueprintGraphContainer">
+              <!-- Dynamic Obsidian-Style Clustered SVG Graph -->
+            </div>
+
+            <!-- Right Floating Panel (Displays selected block details & clickable connected blocks list) -->
+            <aside class="graph-floating-panel" id="connectionInspector">
+              <!-- Populated by App.renderConnectionInspector() -->
+            </aside>
           </div>
         </div>
       </section>

@@ -407,6 +407,7 @@ const App = {
 
   renderAll() {
     this.renderBannerSummary();
+    this.renderGraphLeftSidebar();
     this.renderBlueprintGraph();
     this.renderConnectionInspector();
     this.renderPillarsSidebar();
@@ -450,19 +451,22 @@ const App = {
   },
 
   // =========================================================================
-  // SECTION A: INTERACTIVE SVG BLUEPRINT GRAPH (ELLIPTICAL RING + INVISIBLE BUFFER + FOCUS HIGHLIGHT)
+  // SECTION A: OBSIDIAN-STYLE CLUSTERED BLUEPRINT GRAPH + LEFT SIDEBAR + RIGHT FLOATING PANEL
   // =========================================================================
-  graphFocusTaskId: null, // null = ambient overview (all nodes 100%, all lines semi-transparent without labels)
+  graphFocusTaskId: null, // Protagonist task ID when a specific block is selected
   graphHighlightConnOnly: false,
   graphZoom: 1,
   graphPanX: 0,
   graphPanY: 0,
+  graphManualPositions: {}, // Optional user-dragged node coordinates { [taskId]: { x, y } }
   _isDraggingGraph: false,
+  _draggingNodeId: null,
+  _dragMoved: false,
   _dragStartX: 0,
   _dragStartY: 0,
 
-  // Clips a ray from center (cx, cy) toward target (tx, ty) at the node's INVISIBLE outer safety box (halfW, halfH)
-  clipPointToInvisibleBox(cx, cy, tx, ty, halfW = 94, halfH = 50) {
+  // Clips a ray from center (cx, cy) toward target (tx, ty) right at the compact card boundary (halfW, halfH)
+  clipPointToCardBox(cx, cy, tx, ty, halfW = 68, halfH = 27) {
     const dx = tx - cx;
     const dy = ty - cy;
     if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return { x: cx, y: cy };
@@ -475,60 +479,358 @@ const App = {
     };
   },
 
-  // Computes a quadratic Bezier control point that gently arcs and avoids other nodes' invisible bounding boxes
-  computeObstacleAvoidingControlPoint(fromPos, toPos, allNodes, idxOffset = 0) {
+  // Computes a gentle quadratic Bezier control point between two compact nodes
+  computeCurvedControlPoint(fromPos, toPos, idxOffset = 0) {
     const midX = (fromPos.x + toPos.x) / 2;
     const midY = (fromPos.y + toPos.y) / 2;
     const dx = toPos.x - fromPos.x;
     const dy = toPos.y - fromPos.y;
     const dist = Math.max(1, Math.hypot(dx, dy));
 
-    // Normal unit vector perpendicular to AB
-    let nx = -dy / dist;
-    let ny = dx / dist;
+    const nx = -dy / dist;
+    const ny = dx / dist;
 
-    // Default gentle outward arc (curving slightly toward center or away from obstacles)
-    let arcStrength = Math.min(68, dist * 0.18) + (idxOffset % 2 === 0 ? 12 : -12);
-    let ctrlX = midX + nx * arcStrength;
-    let ctrlY = midY + ny * arcStrength;
+    const direction = (idxOffset % 2 === 0) ? 1 : -1;
+    const arcStrength = Math.min(34, dist * 0.14) * direction;
+    return {
+      ctrlX: Math.round(midX + nx * arcStrength),
+      ctrlY: Math.round(midY + ny * arcStrength)
+    };
+  },
 
-    // Repulsion from any intermediate node's invisible safety box (radius ~ 105px)
-    const SAFE_RADIUS = 110;
-    for (const other of allNodes) {
-      if (other.task.id === fromPos.task.id || other.task.id === toPos.task.id) continue;
-      // Check distance from curve midpoint (approx 0.5*mid + 0.5*ctrl) to other node
-      const curveMidX = 0.5 * midX + 0.5 * ctrlX;
-      const curveMidY = 0.5 * midY + 0.5 * ctrlY;
-      const odx = curveMidX - other.x;
-      const ody = curveMidY - other.y;
-      const odist = Math.hypot(odx, ody);
-      if (odist < SAFE_RADIUS) {
-        const push = (SAFE_RADIUS - odist) * 1.65;
-        const pushAngleX = odist > 1 ? odx / odist : nx;
-        const pushAngleY = odist > 1 ? ody / odist : ny;
-        ctrlX += pushAngleX * push;
-        ctrlY += pushAngleY * push;
+  // Computes an Obsidian-style centralized force-directed cluster layout so blocks stay compactly grouped with legible text
+  computeObsidianClusterPositions(tasks, pillars, conns, centerX = 290, centerY = 245) {
+    const pillarMap = {};
+    pillars.forEach((p, idx) => {
+      pillarMap[p.id] = { ...p, sectorIndex: idx };
+    });
+
+    const pillarCount = Math.max(1, pillars.length);
+
+    // Group tasks by pillar for initial organic seeding around the center
+    const tasksByPillar = {};
+    tasks.forEach(t => {
+      const pid = t.pillarId || "UNASSIGNED";
+      if (!tasksByPillar[pid]) tasksByPillar[pid] = [];
+      tasksByPillar[pid].push(t);
+    });
+
+    const nodes = tasks.map((task, globalIdx) => {
+      const pInfo = pillarMap[task.pillarId] || {
+        title: "未分類",
+        color: "#5F7464",
+        bgSoft: "#E7EFE8",
+        sectorIndex: 0
+      };
+
+      // If the user manually dragged this node during this session, respect its position
+      if (this.graphManualPositions && this.graphManualPositions[task.id]) {
+        return {
+          id: task.id,
+          x: this.graphManualPositions[task.id].x,
+          y: this.graphManualPositions[task.id].y,
+          vx: 0,
+          vy: 0,
+          pinned: true,
+          task,
+          pillar: pInfo
+        };
+      }
+
+      const siblings = tasksByPillar[task.pillarId || "UNASSIGNED"] || [task];
+      const localIdx = Math.max(0, siblings.indexOf(task));
+      const sectorAngle = (-Math.PI / 2) + (pInfo.sectorIndex / pillarCount) * (Math.PI * 2);
+      const localSpread = (localIdx - (siblings.length - 1) / 2) * 0.42;
+      const angle = sectorAngle + localSpread;
+      // Expand initial seeding ring naturally as more items exist, without ever shrinking card or font size
+      const ringRadius = tasks.length <= 1 ? 0 : (75 + (localIdx % 2) * 44 + Math.sqrt(tasks.length) * 24);
+
+      return {
+        id: task.id,
+        x: centerX + Math.cos(angle) * ringRadius + ((globalIdx % 3) - 1) * 10,
+        y: centerY + Math.sin(angle) * (ringRadius * 0.85) + ((globalIdx % 2) - 0.5) * 10,
+        vx: 0,
+        vy: 0,
+        pinned: false,
+        task,
+        pillar: pInfo
+      };
+    });
+
+    const nodeById = {};
+    nodes.forEach(n => { nodeById[n.id] = n; });
+
+    // Run deterministic force-directed relaxation (Obsidian-style central gravity + spring attraction + full-size card collision)
+    const ITERATIONS = 90;
+    const IDEAL_EDGE_DIST = 160;
+    const MIN_CARD_DX = 158; // Full-size card width (144) + 14px breathing gap
+    const MIN_CARD_DY = 64;  // Full-size card height (50) + 14px breathing gap
+
+    for (let iter = 0; iter < ITERATIONS; iter++) {
+      const damping = 0.78 - (iter / ITERATIONS) * 0.35;
+
+      // 1. Gentle central gravity (pulls nodes into a cohesive Obsidian-like cluster without crushing them when count grows)
+      for (const n of nodes) {
+        if (n.pinned) continue;
+        n.vx += (centerX - n.x) * 0.022;
+        n.vy += (centerY - n.y) * 0.026;
+      }
+
+      // 2. Same-pillar cohesion (keeps tasks of the same Life Pillar gently grouped together)
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const a = nodes[i];
+          const b = nodes[j];
+          if (a.task.pillarId && a.task.pillarId === b.task.pillarId) {
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist > 150) {
+              const pull = (dist - 150) * 0.015;
+              if (!a.pinned) { a.vx += (dx / dist) * pull; a.vy += (dy / dist) * pull; }
+              if (!b.pinned) { b.vx -= (dx / dist) * pull; b.vy -= (dy / dist) * pull; }
+            }
+          }
+        }
+      }
+
+      // 3. Connection spring attraction (connected nodes pull closer together)
+      for (const c of conns) {
+        const a = nodeById[c.fromTaskId];
+        const b = nodeById[c.toTaskId];
+        if (!a || !b || a === b) continue;
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.max(1, Math.hypot(dx, dy));
+        const delta = (dist - IDEAL_EDGE_DIST) * 0.028;
+        const fx = (dx / dist) * delta;
+        const fy = (dy / dist) * delta;
+        if (!a.pinned) { a.vx += fx; a.vy += fy; }
+        if (!b.pinned) { b.vx -= fx; b.vy -= fy; }
+      }
+
+      // 4. Full-size rectangular card repulsion (guarantees cards never overlap or shrink regardless of item count)
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const a = nodes[i];
+          const b = nodes[j];
+          let dx = b.x - a.x;
+          let dy = b.y - a.y;
+          if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+            dx = (i % 2 === 0 ? 1 : -1) * 4;
+            dy = (j % 2 === 0 ? 1 : -1) * 4;
+          }
+          const overlapX = MIN_CARD_DX - Math.abs(dx);
+          const overlapY = MIN_CARD_DY - Math.abs(dy);
+          if (overlapX > 0 && overlapY > 0) {
+            if (overlapX < overlapY * 1.6) {
+              const pushX = (overlapX * 0.42) * (dx >= 0 ? 1 : -1);
+              if (!a.pinned) a.vx -= pushX;
+              if (!b.pinned) b.vx += pushX;
+            } else {
+              const pushY = (overlapY * 0.44) * (dy >= 0 ? 1 : -1);
+              if (!a.pinned) a.vy -= pushY;
+              if (!b.pinned) b.vy += pushY;
+            }
+          }
+        }
+      }
+
+      // Apply velocities
+      for (const n of nodes) {
+        if (n.pinned) continue;
+        n.x += n.vx * damping;
+        n.y += n.vy * damping;
+        n.vx = 0;
+        n.vy = 0;
       }
     }
 
-    return { ctrlX: Math.round(ctrlX), ctrlY: Math.round(ctrlY) };
+    const nodePositions = {};
+    nodes.forEach(n => {
+      nodePositions[n.id] = {
+        x: Math.round(n.x),
+        y: Math.round(n.y),
+        task: n.task,
+        pillar: n.pillar
+      };
+    });
+    return nodePositions;
   },
 
   resetGraphViewport(clearFocus = false) {
     this.graphZoom = 1;
     this.graphPanX = 0;
     this.graphPanY = 0;
+    this.graphManualPositions = {};
     if (clearFocus) {
       this.graphFocusTaskId = null;
       this.graphHighlightConnOnly = false;
+      this.selectedPillarId = "ALL";
     }
-    this.renderBlueprintGraph();
-    this.renderConnectionInspector();
+    this.renderAll();
   },
 
   zoomGraph(factor) {
-    this.graphZoom = Math.min(2.2, Math.max(0.55, +(this.graphZoom * factor).toFixed(2)));
+    this.graphZoom = Math.min(2.4, Math.max(0.55, +(this.graphZoom * factor).toFixed(2)));
     this.renderBlueprintGraph();
+  },
+
+  // Renders the Left Sidebar inside the Blueprint Graph section (#graphLeftSidebar)
+  renderGraphLeftSidebar() {
+    const sidebarEl = document.getElementById("graphLeftSidebar");
+    if (!sidebarEl) return;
+
+    // Preserve current scroll positions so clicking items doesn't jump the scrollbars unexpectedly
+    const prevOuterScroll = document.getElementById("graphPillarsScrollArea")
+      ? document.getElementById("graphPillarsScrollArea").scrollTop
+      : 0;
+    const prevInnerScrollMap = {};
+    sidebarEl.querySelectorAll(".graph-pillar-tasks.expanded[data-pillar-id]").forEach(el => {
+      prevInnerScrollMap[el.dataset.pillarId] = el.scrollTop;
+    });
+
+    const allTasksCount = this.data.tasks.length;
+    const isAllActive = (this.selectedPillarId === "ALL" && !this.graphFocusTaskId);
+
+    let pillarsHtml = `
+      <div class="graph-pillar-group ${isAllActive ? 'active' : ''}">
+        <button type="button" class="graph-pillar-btn ${isAllActive ? 'active' : ''}" onclick="App.selectGraphPillar('ALL')">
+          <span class="graph-pillar-dot" style="background:var(--sage-primary)"></span>
+          <span class="graph-pillar-name">全部人生大事項</span>
+          <span class="graph-pillar-count">${allTasksCount}</span>
+        </button>
+      </div>
+    `;
+
+    this.data.pillars.forEach(p => {
+      const pillarTasks = this.data.tasks.filter(t => t.pillarId === p.id);
+      const isPillarSelected = (this.selectedPillarId === p.id);
+      const hasFocusedTaskHere = pillarTasks.some(t => t.id === this.graphFocusTaskId);
+      const isExpanded = isPillarSelected || hasFocusedTaskHere;
+
+      const tasksListHtml = pillarTasks.length > 0
+        ? pillarTasks.map(t => {
+            const isTaskProtagonist = (this.graphFocusTaskId === t.id);
+            const connCount = this.data.connections.filter(c => c.fromTaskId === t.id || c.toTaskId === t.id).length;
+            return `
+              <button type="button" class="graph-task-item ${isTaskProtagonist ? 'active' : ''}"
+                      data-sidebar-task-id="${t.id}"
+                      onclick="event.stopPropagation(); App.focusTaskAsProtagonist('${t.id}')">
+                <span class="graph-task-bullet" style="background:${isTaskProtagonist ? p.color : 'var(--ink-muted)'}"></span>
+                <span class="graph-task-title" title="${this.escapeHtml(t.title)}">${this.escapeHtml(t.title)}</span>
+                ${connCount > 0 ? `<span class="graph-task-conn-badge">🔗${connCount}</span>` : ""}
+              </button>
+            `;
+          }).join("")
+        : `<div style="padding:6px 10px;font-size:12px;color:var(--ink-muted);">尚無任務（點擊下方新增）</div>`;
+
+      pillarsHtml += `
+        <div class="graph-pillar-group ${isExpanded ? 'active' : ''}"
+             data-sidebar-pillar-id="${p.id}"
+             style="${isExpanded ? `border-color:${p.color}` : ''}">
+          <button type="button" class="graph-pillar-btn ${isPillarSelected && !this.graphFocusTaskId ? 'active' : ''}"
+                  onclick="App.selectGraphPillar('${p.id}')">
+            <span class="graph-pillar-dot" style="background:${p.color}"></span>
+            <span class="graph-pillar-name" title="${this.escapeHtml(p.title)}" style="${isExpanded ? `color:${p.color};font-weight:700;` : ''}">${this.escapeHtml(p.title)}</span>
+            <span class="graph-pillar-count">${pillarTasks.length}</span>
+          </button>
+          <div class="graph-pillar-tasks ${isExpanded ? 'expanded' : ''}" data-pillar-id="${p.id}">
+            ${tasksListHtml}
+            <button type="button" class="graph-task-item" style="justify-content:center;font-size:11.5px;color:var(--sage-primary);border:1px dashed var(--border-warm);background:transparent;min-height:30px;padding:4px 8px;margin-top:2px;"
+                    onclick="event.stopPropagation(); App.openTaskModal()">
+              ＋ 在此新增任務
+            </button>
+          </div>
+        </div>
+      `;
+    });
+
+    sidebarEl.innerHTML = `
+      <div class="graph-sidebar-header">
+        <span>🧭 人生大事項導覽 (${this.data.pillars.length})</span>
+        <div style="display:flex;align-items:center;gap:4px;">
+          <button type="button" class="btn-icon-text" style="font-size:11px;padding:2px 6px;" onclick="App.openPillarModal()" title="新增人生大事項">＋大事項</button>
+          <button type="button" class="btn-icon-text" style="font-size:11px;padding:2px 6px;" onclick="App.clearGraphFocus()" title="重置為全覽顯示">全覽</button>
+        </div>
+      </div>
+      <div class="graph-pillars-scroll-area" id="graphPillarsScrollArea">
+        ${pillarsHtml}
+      </div>
+    `;
+
+    // Restore scroll positions
+    const newOuterScrollEl = document.getElementById("graphPillarsScrollArea");
+    if (newOuterScrollEl) {
+      newOuterScrollEl.scrollTop = prevOuterScroll;
+    }
+    sidebarEl.querySelectorAll(".graph-pillar-tasks.expanded[data-pillar-id]").forEach(el => {
+      const pid = el.dataset.pillarId;
+      if (prevInnerScrollMap[pid] !== undefined) {
+        el.scrollTop = prevInnerScrollMap[pid];
+      }
+    });
+
+    // Ensure the active task or pillar is scrolled into view inside its scrollable list
+    if (this.graphFocusTaskId) {
+      const activeTaskBtn = sidebarEl.querySelector(`.graph-task-item[data-sidebar-task-id="${this.graphFocusTaskId}"]`);
+      if (activeTaskBtn) {
+        activeTaskBtn.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
+    } else if (this.selectedPillarId && this.selectedPillarId !== "ALL") {
+      const activePillarGroup = sidebarEl.querySelector(`.graph-pillar-group[data-sidebar-pillar-id="${this.selectedPillarId}"]`);
+      if (activePillarGroup) {
+        activePillarGroup.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      }
+    }
+  },
+
+  // Clicking a Life Pillar in the left sidebar highlights all its blocks and brings them to the top layer
+  selectGraphPillar(pillarId) {
+    this.selectedPillarId = pillarId;
+    this.graphFocusTaskId = null;
+    this.graphHighlightConnOnly = false;
+
+    const filteredTasks = pillarId === "ALL"
+      ? this.data.tasks
+      : this.data.tasks.filter(t => t.pillarId === pillarId);
+
+    if (filteredTasks.length > 0 && !filteredTasks.some(t => t.id === this.selectedTaskId)) {
+      this.selectedTaskId = filteredTasks[0].id;
+    }
+    this.renderAll();
+  },
+
+  // Sets a specific Task block as the Protagonist (主角), lighting up its connected blocks on the very top layer
+  focusTaskAsProtagonist(taskId) {
+    if (!taskId) return;
+    const targetTask = this.data.tasks.find(t => t.id === taskId);
+    if (!targetTask) return;
+
+    this.selectedTaskId = taskId;
+    this.graphFocusTaskId = taskId;
+    this.selectedPillarId = targetTask.pillarId || "ALL";
+    this.graphHighlightConnOnly = false;
+
+    const relatedConn = this.data.connections.find(c => c.fromTaskId === taskId || c.toTaskId === taskId);
+    if (relatedConn) {
+      this.selectedConnId = relatedConn.id;
+    }
+
+    // Gently pan the graph if the protagonist node is far from the visible cluster area
+    if (this._lastNodePositions && this._lastNodePositions[taskId]) {
+      const pos = this._lastNodePositions[taskId];
+      const targetCenterX = this._lastClusterCenterX || 290;
+      const targetCenterY = this._lastClusterCenterY || 245;
+      const offsetX = targetCenterX - pos.x;
+      const offsetY = targetCenterY - pos.y;
+      if (Math.hypot(offsetX - this.graphPanX, offsetY - this.graphPanY) > 130) {
+        this.graphPanX = Math.round(offsetX * 0.65);
+        this.graphPanY = Math.round(offsetY * 0.65);
+      }
+    }
+
+    this.renderAll();
   },
 
   renderBlueprintGraph() {
@@ -542,217 +844,191 @@ const App = {
       return;
     }
 
-    // Group tasks by pillar so related tasks sit naturally near each other around the Nordic constellation ring
-    const pillarMap = {};
-    pillars.forEach(p => { pillarMap[p.id] = p; });
-    const orderedTasks = [...tasks].sort((a, b) => {
-      if (a.pillarId === b.pillarId) return 0;
-      return (a.pillarId || "").localeCompare(b.pillarId || "");
-    });
+    // Match SVG base coordinate space 1:1 with actual container pixels so blocks & text NEVER shrink to fit a smaller box!
+    const actualW = Math.max(680, container.clientWidth || 880);
+    const actualH = Math.max(380, container.clientHeight || 490);
+    // Shift cluster center to the center of the uncovered left area (accounting for 330px right floating panel on desktop)
+    const isDesktopStage = window.innerWidth > 768;
+    const clusterCenterX = isDesktopStage ? Math.max(240, Math.round((actualW - 340) / 2)) : Math.round(actualW / 2);
+    const clusterCenterY = Math.round(actualH / 2);
+    this._lastClusterCenterX = clusterCenterX;
+    this._lastClusterCenterY = clusterCenterY;
 
-    const totalTasks = orderedTasks.length;
-    // Dynamically scale elliptical ring radii based on node count so nodes NEVER crowd or overlap
-    const baseRx = Math.max(290, totalTasks * 56);
-    const baseRy = Math.max(130, totalTasks * 27);
-    const centerX = 500;
-    const centerY = 240;
-
-    const nodePositions = {};
-    orderedTasks.forEach((task, idx) => {
-      if (totalTasks === 1) {
-        nodePositions[task.id] = {
-          x: centerX,
-          y: centerY,
-          task,
-          pillar: pillarMap[task.pillarId] || { title: "未分類", color: "#5F7464", bgSoft: "#E7EFE8" }
-        };
-        return;
-      }
-      // Distribute evenly around an elliptical constellation ring (starting from top-left -145 deg)
-      const angle = (-Math.PI * 0.78) + (idx / totalTasks) * (Math.PI * 2);
-      // Slight radial alternation when > 7 nodes for extra breathing space
-      const ringScale = totalTasks > 7 ? (idx % 2 === 0 ? 1.06 : 0.86) : 1.0;
-      const x = Math.round(centerX + Math.cos(angle) * baseRx * ringScale);
-      const y = Math.round(centerY + Math.sin(angle) * baseRy * ringScale);
-
-      nodePositions[task.id] = {
-        x,
-        y,
-        task,
-        pillar: pillarMap[task.pillarId] || { title: "未分類", color: "#5F7464", bgSoft: "#E7EFE8" }
-      };
-    });
-
+    const nodePositions = this.computeObsidianClusterPositions(tasks, pillars, conns, clusterCenterX, clusterCenterY);
+    this._lastNodePositions = nodePositions;
     const allNodesList = Object.values(nodePositions);
 
-    // Compute dynamic bounding box of all nodes + generous invisible outer margin so NOTHING ever goes out of page
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    allNodesList.forEach(n => {
-      if (n.x - 135 < minX) minX = n.x - 135;
-      if (n.x + 135 > maxX) maxX = n.x + 135;
-      if (n.y - 82 < minY) minY = n.y - 82;
-      if (n.y + 82 > maxY) maxY = n.y + 82;
-    });
+    const viewW = Math.round(actualW / this.graphZoom);
+    const viewH = Math.round(actualH / this.graphZoom);
+    const viewX = Math.round((actualW - viewW) / 2 - this.graphPanX);
+    const viewY = Math.round((actualH - viewH) / 2 - this.graphPanY);
 
-    const rawW = Math.max(760, maxX - minX);
-    const rawH = Math.max(340, maxY - minY);
-    const viewW = Math.round(rawW / this.graphZoom);
-    const viewH = Math.round(rawH / this.graphZoom);
-    const viewX = Math.round(minX + (rawW - viewW) / 2 - this.graphPanX);
-    const viewY = Math.round(minY + (rawH - viewH) / 2 - this.graphPanY);
-
-    // Determine which nodes and connections are currently illuminated
+    // Determine illumination state:
+    // Case 1: Protagonist Task selected (focusedTaskId) -> Protagonist + directly connected tasks light up
+    // Case 2: Life Pillar selected in sidebar (focusedPillarId) -> All blocks in that Pillar light up on top layer
+    // Case 3: Single Connection selected -> Both endpoint blocks light up
     const focusedTaskId = this.graphFocusTaskId;
     const focusedPillarId = (!focusedTaskId && this.selectedPillarId !== "ALL") ? this.selectedPillarId : null;
-    const connectedTaskIds = new Set();
+    const primaryLitTaskIds = new Set(); // Protagonist or Pillar's own tasks
+    const connectedNeighborIds = new Set(); // Neighbor tasks connected to Protagonist
     const activeConnIds = new Set();
 
     if (focusedTaskId) {
-      connectedTaskIds.add(focusedTaskId);
+      primaryLitTaskIds.add(focusedTaskId);
       conns.forEach(c => {
         if (c.fromTaskId === focusedTaskId || c.toTaskId === focusedTaskId) {
           activeConnIds.add(c.id);
-          connectedTaskIds.add(c.fromTaskId);
-          connectedTaskIds.add(c.toTaskId);
+          connectedNeighborIds.add(c.fromTaskId);
+          connectedNeighborIds.add(c.toTaskId);
         }
       });
     } else if (focusedPillarId) {
-      const pillarTasks = new Set(tasks.filter(t => t.pillarId === focusedPillarId).map(t => t.id));
-      pillarTasks.forEach(tid => connectedTaskIds.add(tid));
+      tasks.forEach(t => {
+        if (t.pillarId === focusedPillarId) {
+          primaryLitTaskIds.add(t.id);
+        }
+      });
       conns.forEach(c => {
-        if (pillarTasks.has(c.fromTaskId) || pillarTasks.has(c.toTaskId)) {
+        if (primaryLitTaskIds.has(c.fromTaskId) && primaryLitTaskIds.has(c.toTaskId)) {
           activeConnIds.add(c.id);
-          connectedTaskIds.add(c.fromTaskId);
-          connectedTaskIds.add(c.toTaskId);
+        } else if (primaryLitTaskIds.has(c.fromTaskId) || primaryLitTaskIds.has(c.toTaskId)) {
+          activeConnIds.add(c.id);
+          connectedNeighborIds.add(c.fromTaskId);
+          connectedNeighborIds.add(c.toTaskId);
         }
       });
     } else if (this.graphHighlightConnOnly && this.selectedConnId) {
       const selConn = conns.find(c => c.id === this.selectedConnId);
       if (selConn) {
         activeConnIds.add(selConn.id);
-        connectedTaskIds.add(selConn.fromTaskId);
-        connectedTaskIds.add(selConn.toTaskId);
+        primaryLitTaskIds.add(selConn.fromTaskId);
+        primaryLitTaskIds.add(selConn.toTaskId);
       }
     }
 
     const hasActiveFilter = (focusedTaskId != null) || (focusedPillarId != null) || (this.graphHighlightConnOnly && activeConnIds.size > 0);
 
-    // Build SVG connections (drawn first, behind nodes; clipped at each node's invisible outer safety box!)
-    let pathsHtml = "";
-    let labelsHtml = "";
+    // Sort connections so illuminated lines render ON TOP OF dimmed lines
+    const sortedConns = conns.map((conn, idx) => ({
+      conn,
+      idx,
+      isLit: activeConnIds.has(conn.id)
+    })).sort((a, b) => (a.isLit === b.isLit ? 0 : (a.isLit ? 1 : -1)));
 
-    conns.forEach((conn, idx) => {
+    // Build SVG connections (NO text labels on lines, per user specification!)
+    let pathsHtml = "";
+    sortedConns.forEach(({ conn, idx, isLit }) => {
       const fromNode = nodePositions[conn.fromTaskId];
       const toNode = nodePositions[conn.toTaskId];
       if (!fromNode || !toNode) return;
 
       const meta = CONN_TYPE_META[conn.type] || CONN_TYPE_META.synergy;
-      const isConnLit = activeConnIds.has(conn.id);
       const isOutgoingFromFocused = (focusedTaskId && conn.fromTaskId === focusedTaskId);
 
-      // Compute obstacle-avoiding control point
-      const { ctrlX, ctrlY } = this.computeObstacleAvoidingControlPoint(fromNode, toNode, allNodesList, idx);
-
-      // Clip start & end points at the INVISIBLE outer boundary box (halfW=92, halfH=48) so lines have clean air gap from nodes!
-      const startPt = this.clipPointToInvisibleBox(fromNode.x, fromNode.y, ctrlX, ctrlY, 90, 48);
-      const endPt = this.clipPointToInvisibleBox(toNode.x, toNode.y, ctrlX, ctrlY, 94, 52);
+      const { ctrlX, ctrlY } = this.computeCurvedControlPoint(fromNode, toNode, idx);
+      const startPt = this.clipPointToCardBox(fromNode.x, fromNode.y, ctrlX, ctrlY, 74, 27);
+      const endPt = this.clipPointToCardBox(toNode.x, toNode.y, ctrlX, ctrlY, 76, 29);
 
       const pathD = `M ${Math.round(startPt.x)} ${Math.round(startPt.y)} Q ${ctrlX} ${ctrlY} ${Math.round(endPt.x)} ${Math.round(endPt.y)}`;
 
-      // Default semi-transparent when not focused; bright when focused!
       const strokeOpacity = hasActiveFilter
-        ? (isConnLit ? 0.95 : 0.11)
-        : 0.24;
-      const strokeW = isConnLit ? (isOutgoingFromFocused ? 3.5 : 2.8) : 1.8;
+        ? (isLit ? 0.96 : 0.10)
+        : 0.34;
+      const strokeW = isLit ? (isOutgoingFromFocused ? 3.2 : 2.6) : 1.6;
 
       pathsHtml += `
         <g class="conn-svg-group" style="cursor:pointer"
            onclick="event.stopPropagation(); App.selectConnection('${conn.id}')"
            ondblclick="event.stopPropagation(); App.openEditConnectionModal('${conn.id}')">
-          <!-- Wide invisible click area -->
-          <path d="${pathD}" stroke="transparent" stroke-width="18" fill="none" />
-          ${isConnLit ? `<path d="${pathD}" stroke="${meta.color}" stroke-width="8" stroke-opacity="0.16" fill="none" />` : ""}
+          <path d="${pathD}" stroke="transparent" stroke-width="14" fill="none" />
+          ${isLit ? `<path d="${pathD}" stroke="${meta.color}" stroke-width="7" stroke-opacity="0.18" fill="none" />` : ""}
           <path d="${pathD}" stroke="${meta.color}" stroke-width="${strokeW}" stroke-opacity="${strokeOpacity}"
                 stroke-dasharray="${conn.type === 'nourish' ? '6 4' : 'none'}" fill="none"
-                marker-end="url(#arrow-${conn.type}-${isConnLit ? 'lit' : 'dim'})" />
+                marker-end="url(#arrow-${conn.type}-${isLit ? 'lit' : 'dim'})" />
         </g>
       `;
-
-      // ONLY render text labels on lit-up connections so the graph stays 100% clean and uncluttered!
-      if (isConnLit) {
-        const labelX = Math.round(0.25 * startPt.x + 0.5 * ctrlX + 0.25 * endPt.x);
-        const labelY = Math.round(0.25 * startPt.y + 0.5 * ctrlY + 0.25 * endPt.y);
-        const labelText = this.truncate(conn.label, 10);
-        const pillW = Math.max(88, labelText.length * 12 + 24);
-
-        labelsHtml += `
-          <g style="cursor:pointer"
-             onclick="event.stopPropagation(); App.selectConnection('${conn.id}')"
-             ondblclick="event.stopPropagation(); App.openEditConnectionModal('${conn.id}')">
-            <title>單擊檢視詳情，雙擊直接編輯此關聯線</title>
-            <rect x="${labelX - pillW / 2}" y="${labelY - 12}" width="${pillW}" height="24" rx="12"
-                  fill="${meta.color}" stroke="#FCFBF7" stroke-width="2" />
-            <text x="${labelX}" y="${labelY + 4}" text-anchor="middle"
-                  font-size="11" font-weight="700" fill="#FFFFFF">
-              ${isOutgoingFromFocused ? "↗ " : ""}${this.escapeHtml(labelText)}
-            </text>
-          </g>
-        `;
-      }
     });
 
-    // Build SVG task nodes (with invisible outer safety frame & borderless/soft-edge Nordic cards)
+    // Assign z-order priority so illuminated Pillar blocks / Protagonist & connected blocks are rendered LAST (最上層)!
+    // 0 = dimmed background node
+    // 1 = connected neighbor node
+    // 2 = selected Pillar's primary block
+    // 3 = Protagonist block (主角)
+    const getZPriority = (taskId) => {
+      if (focusedTaskId === taskId) return 3;
+      if (primaryLitTaskIds.has(taskId)) return 2;
+      if (connectedNeighborIds.has(taskId)) return 1;
+      return 0;
+    };
+
+    const sortedNodes = [...allNodesList].sort((a, b) => getZPriority(a.task.id) - getZPriority(b.task.id));
+
+    // Build compact, high-legibility Obsidian-style task blocks (no giant invisible outer frame!)
     let nodesHtml = "";
-    allNodesList.forEach(pos => {
+    sortedNodes.forEach(pos => {
       const { x, y, task, pillar } = pos;
-      const isFocused = (focusedTaskId === task.id);
-      const isConnectedNeighbor = hasActiveFilter && connectedTaskIds.has(task.id);
+      const zPriority = getZPriority(task.id);
+      const isProtagonist = (zPriority === 3);
+      const isPrimaryLit = (zPriority >= 2);
+      const isConnectedNeighbor = (zPriority === 1);
+      const isLit = !hasActiveFilter || zPriority >= 1;
+
       const nodeOpacity = hasActiveFilter
-        ? (isConnectedNeighbor ? 1.0 : 0.30)
+        ? (isProtagonist || isPrimaryLit ? 1.0 : (isConnectedNeighbor ? 0.94 : 0.20))
         : 1.0;
 
-      const scoreBadge = task.enableTracker
-        ? `★ ${task.tracker.selfScore}/10`
-        : `📓 筆記(${task.notes.length})`;
+      const scaleTransform = isProtagonist
+        ? "scale(1.08)"
+        : (hasActiveFilter && isPrimaryLit ? "scale(1.04)" : "scale(1)");
 
       const outCount = conns.filter(c => c.fromTaskId === task.id || c.toTaskId === task.id).length;
+      const metaSubText = task.enableTracker
+        ? `★ ${task.tracker.selfScore}/10`
+        : `📓 ${task.notes ? task.notes.length : 0}`;
 
       nodesHtml += `
-        <g class="node-svg-group" transform="translate(${x}, ${y})" style="cursor:pointer; opacity:${nodeOpacity}"
-           onclick="event.stopPropagation(); App.selectTaskFromGraph('${task.id}')">
-          <!-- Invisible Outer Safety Buffer Frame (184x96) that keeps spacing & click comfort -->
-          <rect x="-92" y="-48" width="184" height="96" rx="24" fill="transparent" stroke="none" />
+        <g class="node-svg-group" data-task-id="${task.id}"
+           transform="translate(${x}, ${y}) ${scaleTransform}"
+           style="cursor:pointer; opacity:${nodeOpacity}; transition: opacity 0.18s ease;"
+           onmousedown="App.startNodeDrag(event, '${task.id}')"
+           onclick="event.stopPropagation(); App.handleNodeClick('${task.id}')">
 
-          <!-- Highlight Halo when focused or connected -->
-          ${isFocused ? `
-            <rect x="-84" y="-38" width="168" height="76" rx="22" fill="${pillar.color}" opacity="0.15" />
-            <rect x="-80" y="-34" width="160" height="68" rx="20" fill="none" stroke="${pillar.color}" stroke-width="2" stroke-dasharray="4 3" opacity="0.7" />
+          <!-- Glow Halo for Protagonist or Selected Pillar Blocks (rendered on top layer) -->
+          ${isProtagonist ? `
+            <rect x="-80" y="-33" width="160" height="66" rx="19" fill="${pillar.color}" opacity="0.22" />
+            <rect x="-76" y="-29" width="152" height="58" rx="17" fill="none" stroke="${pillar.color}" stroke-width="2.2" stroke-dasharray="4 3" opacity="0.9" />
+          ` : (hasActiveFilter && isPrimaryLit ? `
+            <rect x="-77" y="-30" width="154" height="60" rx="17" fill="${pillar.color}" opacity="0.16" />
           ` : (isConnectedNeighbor ? `
-            <rect x="-81" y="-35" width="162" height="70" rx="20" fill="${pillar.color}" opacity="0.10" />
-          ` : "")}
+            <rect x="-75" y="-28" width="150" height="56" rx="16" fill="${pillar.color}" opacity="0.11" />
+          ` : ""))}
 
-          <!-- Soft Borderless Nordic Card (no harsh heavy border) -->
-          <rect x="-74" y="-28" width="148" height="58" rx="16"
-                fill="${isFocused ? '#FFFFFF' : pillar.bgSoft}"
+          <!-- Full-Size Crisp Card (144x50) — never shrinks as items increase -->
+          <rect x="-72" y="-25" width="144" height="50" rx="14"
+                fill="${isProtagonist || (hasActiveFilter && isPrimaryLit) ? '#FFFFFF' : pillar.bgSoft}"
                 stroke="${pillar.color}"
-                stroke-width="${isFocused ? 2.2 : (isConnectedNeighbor ? 1.5 : 0)}"
-                stroke-opacity="${isFocused ? 0.9 : 0.45}"
+                stroke-width="${isProtagonist ? 2.5 : (isPrimaryLit ? 2.0 : (isConnectedNeighbor ? 1.6 : 1.1))}"
+                stroke-opacity="${isLit ? 0.92 : 0.42}"
                 filter="url(#nordic-card-shadow)" />
 
-          <!-- Pillar top floating pill -->
-          <rect x="-46" y="-38" width="92" height="18" rx="9" fill="${pillar.color}" />
-          <text x="0" y="-25.5" text-anchor="middle" font-size="10" font-weight="700" fill="#FFFFFF">
-            ${this.escapeHtml(this.truncate(pillar.title, 7))}
+          <!-- Pillar Color Dot + Label at top of card -->
+          <circle cx="-57" cy="-11" r="4" fill="${pillar.color}" />
+          <text x="-49" y="-7.5" text-anchor="start" font-size="10.2" font-weight="700" fill="${pillar.color}">
+            ${this.escapeHtml(this.truncate(pillar.title, 8))}
           </text>
+          ${outCount > 0 ? `
+            <text x="61" y="-7.5" text-anchor="end" font-size="10" font-weight="700" fill="#6E7770">
+              🔗${outCount}
+            </text>
+          ` : `
+            <text x="61" y="-7.5" text-anchor="end" font-size="10" fill="#7A827C">
+              ${metaSubText}
+            </text>
+          `}
 
-          <!-- Task Title -->
-          <text x="0" y="-2" text-anchor="middle" font-size="13" font-weight="700" fill="#2C322E">
-            ${this.escapeHtml(this.truncate(task.title, 9))}
-          </text>
-
-          <!-- Sub status -->
-          <text x="0" y="17" text-anchor="middle" font-size="10.8" fill="#5A625C">
-            ${scoreBadge}${task.tracker && task.tracker.aiCompletion ? ` · AI ${task.tracker.aiCompletion}%` : ""}${outCount > 0 ? ` · 🔗${outCount}` : ""}
+          <!-- Large Legible Task Title -->
+          <text x="0" y="12" text-anchor="middle" font-size="13.5" font-weight="700" fill="#232925">
+            ${this.escapeHtml(this.truncate(task.title, 10))}
           </text>
         </g>
       `;
@@ -763,7 +1039,7 @@ const App = {
            onClick="App.clearGraphFocus()">
         <defs>
           <filter id="nordic-card-shadow" x="-15%" y="-15%" width="130%" height="135%">
-            <feDropShadow dx="0" dy="4" stdDeviation="5" flood-color="#2C322E" flood-opacity="0.07" />
+            <feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#2C322E" flood-opacity="0.09" />
           </filter>
           <marker id="arrow-foundation-lit" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
             <path d="M0,1 L7,4 L0,7 Z" fill="#5F7464" />
@@ -786,22 +1062,38 @@ const App = {
         </defs>
         ${pathsHtml}
         ${nodesHtml}
-        ${labelsHtml}
       </svg>
 
       <!-- Floating Zoom / Fit / Focus Controls -->
       <div class="graph-floating-controls" onclick="event.stopPropagation()">
-        <button type="button" class="graph-ctrl-btn ${!hasActiveFilter ? 'active' : ''}" onclick="App.clearGraphFocus()" title="顯示所有節點並將關聯線轉為半透明無標籤">
-          ✨ 全覽待機模式
+        <button type="button" class="graph-ctrl-btn ${!hasActiveFilter ? 'active' : ''}" onclick="App.clearGraphFocus()" title="顯示所有節點">
+          ✨ 全覽模式
         </button>
         <span style="color:var(--border-warm)">|</span>
-        <button type="button" class="graph-ctrl-btn" onclick="App.zoomGraph(1.18)" title="放大藍圖">＋ 放大</button>
-        <button type="button" class="graph-ctrl-btn" onclick="App.zoomGraph(0.85)" title="縮小藍圖">－ 縮小</button>
-        <button type="button" class="graph-ctrl-btn" onclick="App.resetGraphViewport(false)" title="自動適應畫面大小">🔍 自動適應 (${Math.round(this.graphZoom * 100)}%)</button>
+        <button type="button" class="graph-ctrl-btn" onclick="App.zoomGraph(1.18)" title="放大藍圖">＋</button>
+        <button type="button" class="graph-ctrl-btn" onclick="App.zoomGraph(0.85)" title="縮小藍圖">－</button>
+        <button type="button" class="graph-ctrl-btn" onclick="App.resetGraphViewport(false)" title="重新集中排列並重設視角">🎯 重新集中 (${Math.round(this.graphZoom * 100)}%)</button>
       </div>
     `;
 
     this.attachGraphPanZoomEvents();
+  },
+
+  startNodeDrag(e, taskId) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    this._draggingNodeId = taskId;
+    this._dragMoved = false;
+    this._dragStartX = e.clientX;
+    this._dragStartY = e.clientY;
+  },
+
+  handleNodeClick(taskId) {
+    if (this._dragMoved) {
+      this._dragMoved = false;
+      return;
+    }
+    this.focusTaskAsProtagonist(taskId);
   },
 
   attachGraphPanZoomEvents() {
@@ -822,6 +1114,25 @@ const App = {
     };
 
     window.onmousemove = (e) => {
+      if (this._draggingNodeId) {
+        const dx = e.clientX - this._dragStartX;
+        const dy = e.clientY - this._dragStartY;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+          this._dragMoved = true;
+          const cur = (this._lastNodePositions && this._lastNodePositions[this._draggingNodeId])
+            ? this._lastNodePositions[this._draggingNodeId]
+            : { x: 310, y: 245 };
+          this.graphManualPositions[this._draggingNodeId] = {
+            x: Math.round(cur.x + dx / this.graphZoom),
+            y: Math.round(cur.y + dy / this.graphZoom)
+          };
+          this._dragStartX = e.clientX;
+          this._dragStartY = e.clientY;
+          this.renderBlueprintGraph();
+        }
+        return;
+      }
+
       if (!this._isDraggingGraph) return;
       const dx = e.clientX - this._dragStartX;
       const dy = e.clientY - this._dragStartY;
@@ -836,6 +1147,7 @@ const App = {
 
     window.onmouseup = () => {
       this._isDraggingGraph = false;
+      this._draggingNodeId = null;
     };
 
     // Touch events for iPhone / iPad (1-finger pan & 2-finger pinch zoom)
@@ -892,105 +1204,251 @@ const App = {
     }
   },
 
+  // Renders the Right Floating Panel (#connectionInspector) showing selected block details + clickable connected blocks list
   renderConnectionInspector() {
     const box = document.getElementById("connectionInspector");
+    if (!box) return;
 
-    // If a task node is focused, show all connections radiating from / into that task!
-    if (this.graphFocusTaskId) {
-      const focusedTask = this.data.tasks.find(t => t.id === this.graphFocusTaskId);
+    // 1. If a Protagonist Task block is focused (via Left Sidebar task click, Graph node click, or Connected Block jump):
+    const protagonistTask = this.graphFocusTaskId
+      ? this.data.tasks.find(t => t.id === this.graphFocusTaskId)
+      : null;
+
+    if (protagonistTask) {
+      const pillar = this.data.pillars.find(p => p.id === protagonistTask.pillarId) || {
+        title: "未分類",
+        color: "#5F7464",
+        bgSoft: "#E7EFE8"
+      };
       const relatedConns = this.data.connections.filter(
-        c => c.fromTaskId === this.graphFocusTaskId || c.toTaskId === this.graphFocusTaskId
+        c => c.fromTaskId === protagonistTask.id || c.toTaskId === protagonistTask.id
       );
+      const notesCount = protagonistTask.notes ? protagonistTask.notes.length : 0;
 
-      if (focusedTask && relatedConns.length > 0) {
-        const itemsHtml = relatedConns.map(c => {
-          const isOutgoing = c.fromTaskId === focusedTask.id;
-          const otherId = isOutgoing ? c.toTaskId : c.fromTaskId;
-          const otherTask = this.data.tasks.find(t => t.id === otherId);
-          const meta = CONN_TYPE_META[c.type] || CONN_TYPE_META.synergy;
-          return `
-            <div style="background:rgba(255,255,255,0.82);border:1px solid var(--border-subtle);border-radius:10px;padding:9px 11px;margin-bottom:8px;cursor:pointer;"
-                 onclick="App.selectConnection('${c.id}')">
-              <div style="display:flex;justify-content:space-between;align-items:center;font-size:11.5px;margin-bottom:3px;">
-                <span style="color:${meta.color};font-weight:700;">${isOutgoing ? "↗ 發射影響" : "↙ 接收支撐"} ・ ${this.escapeHtml(c.label)}</span>
-                <div style="display:flex;align-items:center;gap:6px;">
-                  <span style="color:var(--ink-muted)">${c.strength || 85}%</span>
-                  <button type="button" class="btn-icon-text" style="padding:1px 7px;font-size:11px;"
-                          onclick="event.stopPropagation(); App.openEditConnectionModal('${c.id}')" title="編輯此關聯線">✎ 編輯</button>
+      const connectedCardsHtml = relatedConns.length > 0
+        ? relatedConns.map(c => {
+            const isOutgoing = c.fromTaskId === protagonistTask.id;
+            const otherId = isOutgoing ? c.toTaskId : c.fromTaskId;
+            const otherTask = this.data.tasks.find(t => t.id === otherId);
+            const otherPillar = otherTask
+              ? (this.data.pillars.find(p => p.id === otherTask.pillarId) || { title: "未分類", color: "#5F7464" })
+              : { title: "未知", color: "#5F7464" };
+            const meta = CONN_TYPE_META[c.type] || CONN_TYPE_META.synergy;
+
+            return `
+              <div class="connected-block-card"
+                   onclick="App.focusTaskAsProtagonist('${otherTask ? otherTask.id : ''}')"
+                   title="點擊立即跳轉至【${otherTask ? this.escapeHtml(otherTask.title) : ''}】作為主角方塊">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:4px;">
+                  <span style="font-size:11px;font-weight:700;color:${meta.color};background:${meta.bg};padding:2px 7px;border-radius:99px;">
+                    ${isOutgoing ? "↗ 輸出影響" : "↙ 接收支撐"} ・ ${this.escapeHtml(c.label)}
+                  </span>
+                  <div style="display:flex;align-items:center;gap:4px;">
+                    <button type="button" class="btn-icon-text" style="padding:1px 6px;font-size:10.5px;"
+                            onclick="event.stopPropagation(); App.openEditConnectionModal('${c.id}')" title="編輯此關聯線">✎</button>
+                  </div>
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:4px;">
+                  <div style="display:flex;align-items:center;gap:6px;min-width:0;">
+                    <span style="width:8px;height:8px;border-radius:50%;background:${otherPillar.color};flex-shrink:0;"></span>
+                    <span style="font-size:13px;font-weight:700;color:var(--ink-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                      ${otherTask ? this.escapeHtml(otherTask.title) : "未知方塊"}
+                    </span>
+                  </div>
+                  <span class="jump-protagonist-pill">設為主角 ➔</span>
+                </div>
+                <div style="font-size:11.5px;color:var(--ink-secondary);line-height:1.45;">
+                  ${this.escapeHtml(c.reason || "")}
                 </div>
               </div>
-              <div style="font-size:12.5px;font-weight:700;color:var(--ink-primary);margin-bottom:3px;">
-                ${isOutgoing ? `➔ 連向【${otherTask ? this.escapeHtml(otherTask.title) : ''}】` : `⬅ 來自【${otherTask ? this.escapeHtml(otherTask.title) : ''}】`}
+            `;
+          }).join("")
+        : `
+          <div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.65);border:1px dashed var(--border-warm);font-size:12px;color:var(--ink-secondary);text-align:center;">
+            此方塊目前尚無關聯連線。<br/>
+            <button type="button" class="btn btn-xs btn-soft" style="margin-top:6px;" onclick="App.openConnectionModal('${protagonistTask.id}')">＋ 為此方塊新增關聯</button>
+          </div>
+        `;
+
+      box.innerHTML = `
+        <div class="floating-panel-inner">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:8px;">
+            <span class="inspector-badge" style="background:${pillar.bgSoft || '#E7EFE8'};color:${pillar.color};margin-bottom:0;">
+              ● ${this.escapeHtml(pillar.title)}
+            </span>
+            <button type="button" class="btn-icon-text" style="font-size:11px;padding:2px 8px;" onclick="App.clearGraphFocus()">返回全覽</button>
+          </div>
+
+          <!-- Selected Block Details (點選的方塊細節) -->
+          <div class="protagonist-detail-card" style="border-left:4px solid ${pillar.color};">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+              <div>
+                <div style="font-size:10.5px;font-weight:700;color:${pillar.color};letter-spacing:0.03em;margin-bottom:2px;">🌟 當前主角方塊</div>
+                <div style="font-size:15px;font-weight:700;color:var(--ink-primary);line-height:1.35;">
+                  ${this.escapeHtml(protagonistTask.title)}
+                </div>
               </div>
-              <div style="font-size:12px;color:var(--ink-secondary);line-height:1.5;">
-                ${this.escapeHtml(c.reason)}
+              <button type="button" class="btn-icon-text" style="font-size:11px;padding:2px 7px;flex-shrink:0;"
+                      onclick="App.openTaskModal('${protagonistTask.id}')">✎ 編輯</button>
+            </div>
+            <p style="font-size:12px;color:var(--ink-secondary);line-height:1.5;margin:6px 0 8px;">
+              ${this.escapeHtml(protagonistTask.summary || "尚無任務摘要描述")}
+            </p>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;font-size:11px;color:var(--ink-muted);">
+              ${protagonistTask.enableTracker
+                ? `<span style="background:#FFF;padding:2px 8px;border-radius:99px;border:1px solid var(--border-subtle);">🌰 自評 ${protagonistTask.tracker.selfScore}/10</span>
+                   <span style="background:#FFF;padding:2px 8px;border-radius:99px;border:1px solid var(--border-subtle);">🤖 AI 完成度 ${protagonistTask.tracker.aiCompletion || 0}%</span>`
+                : `<span style="background:#FFF;padding:2px 8px;border-radius:99px;border:1px solid var(--border-subtle);">🌿 無壓力純筆記模式</span>`}
+              <span style="background:#FFF;padding:2px 8px;border-radius:99px;border:1px solid var(--border-subtle);">📓 筆記 ${notesCount} 篇</span>
+            </div>
+          </div>
+
+          <!-- Connected Blocks List (連接的方塊有哪些 + 點擊跳轉為主角) -->
+          <div style="display:flex;justify-content:space-between;align-items:center;margin:10px 0 6px;">
+            <span style="font-size:12px;font-weight:700;color:var(--ink-primary);">
+              🔗 連接的方塊（${relatedConns.length}）
+            </span>
+            <span style="font-size:11px;color:var(--sage-primary);font-weight:600;">點擊可跳轉為主角</span>
+          </div>
+          <div class="connected-blocks-list">
+            ${connectedCardsHtml}
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    // 2. If a Life Pillar is selected in the Left Sidebar (without a single Protagonist task yet):
+    if (this.selectedPillarId && this.selectedPillarId !== "ALL" && !this.graphHighlightConnOnly) {
+      const activePillar = this.data.pillars.find(p => p.id === this.selectedPillarId);
+      if (activePillar) {
+        const pillarTasks = this.data.tasks.filter(t => t.pillarId === activePillar.id);
+        const cardsHtml = pillarTasks.map(t => {
+          const cCount = this.data.connections.filter(c => c.fromTaskId === t.id || c.toTaskId === t.id).length;
+          return `
+            <div class="connected-block-card" onclick="App.focusTaskAsProtagonist('${t.id}')">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:3px;">
+                <span style="font-size:13px;font-weight:700;color:var(--ink-primary);">
+                  ${this.escapeHtml(t.title)}
+                </span>
+                <span class="jump-protagonist-pill">設為主角 ➔</span>
+              </div>
+              <div style="font-size:11.5px;color:var(--ink-secondary);line-height:1.4;margin-bottom:4px;">
+                ${this.escapeHtml(this.truncate(t.summary || "點擊檢視此方塊與其關聯網路", 36))}
+              </div>
+              <div style="font-size:11px;color:var(--ink-muted);">
+                🔗 關聯方塊 ${cCount} 個 ・ 📓 筆記 ${t.notes ? t.notes.length : 0} 篇
               </div>
             </div>
           `;
         }).join("");
 
         box.innerHTML = `
-          <div style="overflow-y:auto;max-height:290px;padding-right:4px;">
+          <div class="floating-panel-inner">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-              <span class="inspector-badge" style="background:var(--sage-soft);color:var(--sage-primary);margin-bottom:0;">
-                🌟 已點亮【${this.escapeHtml(focusedTask.title)}】的關聯網
+              <span class="inspector-badge" style="background:${activePillar.bgSoft};color:${activePillar.color};margin-bottom:0;">
+                🌲 人生大事項已置頂點亮
               </span>
-              <button class="btn-icon-text" onclick="App.clearGraphFocus()">返回全覽</button>
+              <button type="button" class="btn-icon-text" style="font-size:11px;padding:2px 8px;" onclick="App.clearGraphFocus()">返回全覽</button>
             </div>
-            <div style="font-size:12px;color:var(--ink-secondary);margin-bottom:8px;">
-              共點亮 <strong>${relatedConns.length}</strong> 條關聯線與連到的項目（點擊可檢視或按「✎ 編輯」修改）：
+            <div style="font-size:15px;font-weight:700;color:${activePillar.color};margin-bottom:3px;">
+              ${this.escapeHtml(activePillar.title)}
             </div>
-            ${itemsHtml}
+            <div style="font-size:12px;color:var(--ink-secondary);margin-bottom:10px;">
+              ${this.escapeHtml(activePillar.subtitle || "已將此大事項相關方塊移至最上層。點選下方任一任務即可檢視其連線方塊：")}
+            </div>
+            <div style="font-size:12px;font-weight:700;color:var(--ink-primary);margin-bottom:6px;">
+              📌 此大事項的方塊（${pillarTasks.length}）：
+            </div>
+            <div class="connected-blocks-list">
+              ${cardsHtml || `<div style="font-size:12px;color:var(--ink-muted);">尚無方塊</div>`}
+            </div>
           </div>
         `;
         return;
       }
     }
 
-    const conn = this.data.connections.find(c => c.id === this.selectedConnId) || this.data.connections[0];
+    // 3. Fallback / Overview or Specific Connection Line clicked:
+    if (this.graphHighlightConnOnly && this.selectedConnId) {
+      const conn = this.data.connections.find(c => c.id === this.selectedConnId);
+      if (conn) {
+        const fromTask = this.data.tasks.find(t => t.id === conn.fromTaskId);
+        const toTask = this.data.tasks.find(t => t.id === conn.toTaskId);
+        const meta = CONN_TYPE_META[conn.type] || CONN_TYPE_META.synergy;
 
-    if (!conn) {
-      box.innerHTML = `
-        <div>
-          <span class="inspector-badge" style="background:var(--sage-soft);color:var(--sage-primary)">🦌 森林關聯洞察</span>
-          <div class="inspector-title">尚無關聯連線</div>
-          <p class="inspector-reason">點擊右上角「＋ 手動連結關聯」或「✨ 讓 AI 重新探索關聯」，就能看見不同人生規劃之間如何彼此支持。</p>
-        </div>
-      `;
-      return;
+        box.innerHTML = `
+          <div class="floating-panel-inner">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <span class="inspector-badge" style="background:${meta.bg};color:${meta.color};margin-bottom:0;">
+                ${meta.label} ・ 關聯度 ${conn.strength || 85}%
+              </span>
+              <button type="button" class="btn-icon-text" style="font-size:11px;padding:2px 8px;" onclick="App.clearGraphFocus()">返回全覽</button>
+            </div>
+            <div class="inspector-title">${this.escapeHtml(conn.label)}</div>
+            <div class="inspector-reason" style="margin-bottom:10px;">
+              ${this.escapeHtml(conn.reason)}
+            </div>
+            <div style="font-size:12px;font-weight:700;color:var(--ink-primary);margin-bottom:6px;">
+              🔗 此關聯線連接的兩個方塊（點擊跳轉為主角）：
+            </div>
+            ${fromTask ? `
+              <div class="connected-block-card" onclick="App.focusTaskAsProtagonist('${fromTask.id}')">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span style="font-size:13px;font-weight:700;">↗ 起點：${this.escapeHtml(fromTask.title)}</span>
+                  <span class="jump-protagonist-pill">設為主角 ➔</span>
+                </div>
+              </div>
+            ` : ""}
+            ${toTask ? `
+              <div class="connected-block-card" onclick="App.focusTaskAsProtagonist('${toTask.id}')">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span style="font-size:13px;font-weight:700;">↙ 終點：${this.escapeHtml(toTask.title)}</span>
+                  <span class="jump-protagonist-pill">設為主角 ➔</span>
+                </div>
+              </div>
+            ` : ""}
+            <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:8px;">
+              <button class="btn btn-xs btn-soft" onclick="App.openEditConnectionModal('${conn.id}')">✎ 編輯關聯</button>
+              <button class="btn btn-xs btn-danger-ghost" onclick="App.deleteConnection('${conn.id}')">移除</button>
+            </div>
+          </div>
+        `;
+        return;
+      }
     }
 
-    const fromTask = this.data.tasks.find(t => t.id === conn.fromTaskId);
-    const toTask = this.data.tasks.find(t => t.id === conn.toTaskId);
-    const meta = CONN_TYPE_META[conn.type] || CONN_TYPE_META.synergy;
-
+    // 4. Default Standby Overview in Right Floating Panel: list quick access or default selected task preview
+    const quickTasks = this.data.tasks.slice(0, 6);
     box.innerHTML = `
-      <div>
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span class="inspector-badge" style="background:${meta.bg};color:${meta.color}">
-            ${meta.label} ・ 關聯度 ${conn.strength || 85}%
-          </span>
-          <span style="font-size:11px;color:var(--ink-muted)">${conn.source === 'ai' ? '✨ AI 洞察' : '✍️ 手動建立'}</span>
+      <div class="floating-panel-inner">
+        <span class="inspector-badge" style="background:var(--sage-soft);color:var(--sage-primary)">🦌 集中式關聯細節面板</span>
+        <div class="inspector-title" style="font-size:14.5px;margin-bottom:4px;">點選任一方塊檢視細節與連線</div>
+        <p class="inspector-reason" style="font-size:12px;margin-bottom:10px;">
+          • 從<strong>左側選單</strong>點選「人生大事項」，相關方塊會亮起並置於最上層。<br/>
+          • 點選任一<strong>任務方塊</strong>，即可顯示方塊細節與連接清單，並快速跳轉主角！
+        </p>
+        <div style="font-size:12px;font-weight:700;color:var(--ink-primary);margin-bottom:6px;">
+          🎯 快速選擇主角方塊：
         </div>
-        <div class="inspector-title">${this.escapeHtml(conn.label)}</div>
-        <div class="inspector-Route">
-          <span class="route-pill" onclick="App.selectTaskFromGraph('${fromTask ? fromTask.id : ''}')">
-            ${fromTask ? this.escapeHtml(fromTask.title) : '未知任務'}
-          </span>
-          <span>➔</span>
-          <span class="route-pill" onclick="App.selectTaskFromGraph('${toTask ? toTask.id : ''}')">
-            ${toTask ? this.escapeHtml(toTask.title) : '未知任務'}
-          </span>
-        </div>
-        <div class="inspector-reason">
-          ${this.escapeHtml(conn.reason)}
-        </div>
-      </div>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:6px;flex-wrap:wrap;">
-        <span style="font-size:11.5px;color:var(--ink-muted)">🐾 點擊左圖任一項目可點亮其連線</span>
-        <div style="display:flex;gap:6px;">
-          <button class="btn btn-xs btn-soft" onclick="App.openEditConnectionModal('${conn.id}')">✎ 編輯關聯</button>
-          <button class="btn btn-xs btn-danger-ghost" onclick="App.deleteConnection('${conn.id}')">移除</button>
+        <div class="connected-blocks-list">
+          ${quickTasks.map(t => {
+            const p = this.data.pillars.find(pil => pil.id === t.pillarId) || { color: "#5F7464", title: "未分類" };
+            const cCount = this.data.connections.filter(c => c.fromTaskId === t.id || c.toTaskId === t.id).length;
+            return `
+              <div class="connected-block-card" onclick="App.focusTaskAsProtagonist('${t.id}')">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+                  <div style="display:flex;align-items:center;gap:6px;min-width:0;">
+                    <span style="width:8px;height:8px;border-radius:50%;background:${p.color};flex-shrink:0;"></span>
+                    <span style="font-size:12.5px;font-weight:700;color:var(--ink-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                      ${this.escapeHtml(t.title)}
+                    </span>
+                  </div>
+                  <span class="jump-protagonist-pill">🔗${cCount} 設為主角 ➔</span>
+                </div>
+              </div>
+            `;
+          }).join("")}
         </div>
       </div>
     `;
@@ -1006,15 +1464,7 @@ const App = {
 
   selectTaskFromGraph(taskId) {
     if (!taskId) return;
-    this.selectedTaskId = taskId;
-    // Toggle focus illumination on the blueprint graph
-    this.graphFocusTaskId = (this.graphFocusTaskId === taskId) ? null : taskId;
-    this.graphHighlightConnOnly = false;
-    const relatedConn = this.data.connections.find(c => c.fromTaskId === taskId || c.toTaskId === taskId);
-    if (relatedConn) {
-      this.selectedConnId = relatedConn.id;
-    }
-    this.renderAll();
+    this.focusTaskAsProtagonist(taskId);
   },
 
   // =========================================================================
