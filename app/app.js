@@ -72,6 +72,33 @@ const App = {
     });
   },
 
+  setPersistentSecret(key, val) {
+    try {
+      localStorage.setItem(key, val);
+    } catch (e) {}
+    try {
+      const encoded = encodeURIComponent(val);
+      document.cookie = `${key}=${encoded}; max-age=31536000; path=/; SameSite=Lax`;
+    } catch (e) {}
+  },
+
+  getPersistentSecret(key) {
+    let val = "";
+    try {
+      val = localStorage.getItem(key) || "";
+    } catch (e) {}
+    if (!val) {
+      try {
+        const match = document.cookie.match(new RegExp("(?:^|; )" + key.replace(/([.$?*|{}()[\]\\/+^])/g, "\\$1") + "=([^;]*)"));
+        if (match && match[1]) {
+          val = decodeURIComponent(match[1]);
+          try { localStorage.setItem(key, val); } catch (e) {}
+        }
+      } catch (e) {}
+    }
+    return val;
+  },
+
   async loadData() {
     let serverData = null;
     this.isLocalServerAvailable = false;
@@ -128,23 +155,23 @@ const App = {
       }
     }
 
-    this.migrateModelSetting();
-
-    // Load local secret API key from /api/apikey or localStorage so data/life_blueprint.json stays safe for Git
+    // Load local secret API key from /api/apikey or localStorage/Cookie BEFORE migrateModelSetting
+    if (!this.data.settings) this.data.settings = { apiKey: "", model: "gemini-3.8-flash" };
     try {
       const kRes = await fetch("/api/apikey");
       if (kRes.ok) {
         const kJson = await kRes.json();
         if (kJson && kJson.apiKey) {
           this.data.settings.apiKey = kJson.apiKey;
-          localStorage.setItem("nordic_gemini_api_key", kJson.apiKey);
+          this.setPersistentSecret("nordic_gemini_api_key", kJson.apiKey);
         }
       }
     } catch (e) {}
     if (!this.data.settings.apiKey) {
-      this.data.settings.apiKey = localStorage.getItem("nordic_gemini_api_key") || "";
+      this.data.settings.apiKey = this.getPersistentSecret("nordic_gemini_api_key") || "";
     }
 
+    this.migrateModelSetting();
     await this.loadGithubSyncConfig();
   },
 
@@ -329,10 +356,12 @@ const App = {
     this.data.lastModifiedAt = Date.now();
     const currentKey = (this.data.settings && this.data.settings.apiKey) || "";
     if (currentKey) {
-      localStorage.setItem("nordic_gemini_api_key", currentKey);
+      this.setPersistentSecret("nordic_gemini_api_key", currentKey);
       fetch("/api/apikey", { method: "POST", body: currentKey }).catch(() => {});
     }
-    localStorage.setItem("nordic_life_blueprint_v1", JSON.stringify(this.data));
+    try {
+      localStorage.setItem("nordic_life_blueprint_v1", JSON.stringify(this.data));
+    } catch (e) {}
 
     // Sanitize apiKey before writing to data/life_blueprint.json so it never leaks to Git
     const diskCopy = JSON.parse(JSON.stringify(this.data));
@@ -1398,6 +1427,11 @@ const App = {
       this.showToast("⚠️ AI 分析請求已送出且正在運算中，請確認是否仍要離開！");
       return;
     }
+    if (id === "settingsModal") {
+      this.saveGithubSyncConfig(false);
+    } else if (id === "aiModal") {
+      this.saveApiSettingsQuietly(false);
+    }
     const warnBanner = document.getElementById("aiCloseWarningBanner");
     if (warnBanner) warnBanner.classList.add("hidden");
     document.getElementById(id).classList.add("hidden");
@@ -1871,11 +1905,33 @@ const App = {
     document.getElementById("aiTabContentBridge").classList.toggle("hidden", mode !== "bridge");
   },
 
-  SaveApiSettingsOnly() {
+  saveApiSettingsQuietly(showNotice = false) {
     if (!this.data.settings) this.data.settings = {};
-    this.data.settings.apiKey = document.getElementById("aiApiKeyInput").value.trim();
-    this.data.settings.model = document.getElementById("aiModelSelect").value;
-    this.saveData("已儲存 Gemini API 設定 🔑");
+    const keyInput = document.getElementById("aiApiKeyInput");
+    const modelInput = document.getElementById("aiModelSelect");
+    if (keyInput) {
+      const k = keyInput.value.trim();
+      this.data.settings.apiKey = k;
+      this.setPersistentSecret("nordic_gemini_api_key", k);
+      if (k) {
+        fetch("/api/apikey", { method: "POST", body: k }).catch(() => {});
+      }
+    }
+    if (modelInput && modelInput.value) {
+      this.data.settings.model = modelInput.value;
+    }
+    try {
+      localStorage.setItem("nordic_life_blueprint_v1", JSON.stringify(this.data));
+    } catch (e) {}
+    this.renderSandboxInspector();
+    if (showNotice) {
+      this.showToast("已儲存 Gemini API 設定 🔑");
+    }
+  },
+
+  SaveApiSettingsOnly() {
+    this.saveApiSettingsQuietly(true);
+    this.saveData();
   },
 
   runFullAIAnalysis() {
@@ -2404,9 +2460,9 @@ ${JSON.stringify(payload, null, 2)}
   _ghAutoSyncTimer: null,
 
   async loadGithubSyncConfig() {
-    // 1. Try localStorage first
+    // 1. Try localStorage + Cookie (via getPersistentSecret) first
     try {
-      const raw = localStorage.getItem("nordic_github_sync_v1");
+      const raw = this.getPersistentSecret("nordic_github_sync_v1");
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === "object") {
@@ -2430,10 +2486,12 @@ ${JSON.stringify(payload, null, 2)}
             token: cfg.token,
             autoSync: cfg.autoSync != null ? !!cfg.autoSync : this.githubSyncConfig.autoSync
           };
-          localStorage.setItem("nordic_github_sync_v1", JSON.stringify(this.githubSyncConfig));
+          this.setPersistentSecret("nordic_github_sync_v1", JSON.stringify(this.githubSyncConfig));
         }
       }
     } catch (e) {}
+
+    this.renderSandboxInspector();
   },
 
   openSettingsModal() {
@@ -2443,6 +2501,7 @@ ${JSON.stringify(payload, null, 2)}
     if (repoInput) repoInput.value = this.githubSyncConfig.repo || "johnny8dada/Life-Cat-Data";
     if (tokenInput) tokenInput.value = this.githubSyncConfig.token || "";
     if (autoCheck) autoCheck.checked = !!this.githubSyncConfig.autoSync;
+    this.renderSandboxInspector();
     this.openModal("settingsModal");
   },
 
@@ -2455,15 +2514,70 @@ ${JSON.stringify(payload, null, 2)}
       token: tokenInput ? tokenInput.value.trim() : "",
       autoSync: autoCheck ? !!autoCheck.checked : false
     };
-    localStorage.setItem("nordic_github_sync_v1", JSON.stringify(this.githubSyncConfig));
+    this.setPersistentSecret("nordic_github_sync_v1", JSON.stringify(this.githubSyncConfig));
     fetch("/api/github-sync-config", {
       method: "POST",
       headers: { "Content-Type": "application/json; charset=utf-8" },
       body: JSON.stringify(this.githubSyncConfig)
     }).catch(() => {});
+    this.renderSandboxInspector();
     if (showNotice) {
-      this.showToast("💾 已儲存 Private Repo 同步設定");
+      this.showToast("💾 已寫入本機沙盒 (LocalStorage + Cookie 雙重保存)");
     }
+  },
+
+  maskSecret(str) {
+    if (!str) return "尚未儲存";
+    if (str.length <= 8) return "••••" + str.slice(-2);
+    return str.slice(0, 4) + "••••" + str.slice(-4);
+  },
+
+  renderSandboxInspector() {
+    const box = document.getElementById("sandboxInspectorBox");
+    const badge = document.getElementById("ghSyncStatusBadge");
+    const savedApiKey = this.getPersistentSecret("nordic_gemini_api_key") || (this.data && this.data.settings && this.data.settings.apiKey) || "";
+    const savedSyncRaw = this.getPersistentSecret("nordic_github_sync_v1");
+    let savedToken = this.githubSyncConfig ? this.githubSyncConfig.token : "";
+    let savedRepo = this.githubSyncConfig ? this.githubSyncConfig.repo : "johnny8dada/Life-Cat-Data";
+    if (savedSyncRaw) {
+      try {
+        const p = JSON.parse(savedSyncRaw);
+        if (p.token) savedToken = p.token;
+        if (p.repo) savedRepo = p.repo;
+      } catch (e) {}
+    }
+
+    if (badge) {
+      badge.textContent = savedToken ? "🟢 已綁定沙盒金鑰" : "⚪ 尚未設定 Token";
+      badge.style.color = savedToken ? "var(--sage-primary)" : "var(--ink-muted)";
+    }
+
+    if (!box) return;
+    let lsAvailable = false;
+    try {
+      localStorage.setItem("__sandbox_test__", "1");
+      lsAvailable = localStorage.getItem("__sandbox_test__") === "1";
+      localStorage.removeItem("__sandbox_test__");
+    } catch (e) {
+      lsAvailable = false;
+    }
+
+    const isStandalonePWA = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+    const envLabel = this.isLocalServerAvailable
+      ? "💻 電腦本地桌面模式 (同時寫入 data/*.local 與沙盒)"
+      : (isStandalonePWA ? "📱 iPhone 主畫面獨立 App 沙盒" : "🌐 瀏覽器分頁沙盒 (建議加入主畫面後再設定)");
+
+    box.innerHTML = `
+      <div style="font-weight:700;color:var(--ink-primary);margin-bottom:4px;">
+        🔍 本機沙盒儲存空間即時檢視 (${lsAvailable ? "🟢 可正常讀寫" : "🔴 被瀏覽器無痕模式阻擋"})
+      </div>
+      <div>• <strong>目前執行環境</strong>：${envLabel}</div>
+      <div>• <strong>沙盒內 GitHub Token</strong>：<code>${this.escapeHtml(this.maskSecret(savedToken))}</code> （目標倉庫：<code>${this.escapeHtml(savedRepo)}</code>）</div>
+      <div>• <strong>沙盒內 Gemini API Key</strong>：<code>${this.escapeHtml(this.maskSecret(savedApiKey))}</code></div>
+      <div style="margin-top:4px;font-size:11px;color:var(--ink-muted);">
+        💡 只要上方顯示 <code>ghp_••••...</code> 與 <code>AIza••••...</code>，代表已透過 <strong>LocalStorage + 365天 Cookie 雙重寫入</strong>您的手機本機沙盒，重開 App 也不會消失！（請勿使用 Safari「私密瀏覽」黑底無痕模式，否則 iOS 關閉時會強制清空）。
+      </div>
+    `;
   },
 
   utf8ToBase64(str) {

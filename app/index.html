@@ -337,15 +337,16 @@
         <div id="aiTabContentApi" class="ai-tab-panel">
           <div class="form-row-2">
             <div>
-              <label class="form-label">Google Gemini API Key（免費申請，儲存在您的本地電腦）</label>
-              <input type="password" class="form-input" id="aiApiKeyInput" placeholder="貼上 AIzaSy... 開頭的 API Key" />
+              <label class="form-label">Google Gemini API Key（輸入即自動寫入本機沙盒）</label>
+              <input type="password" class="form-input" id="aiApiKeyInput" placeholder="貼上 AIzaSy... 開頭的 API Key"
+                     oninput="App.saveApiSettingsQuietly()" onchange="App.saveApiSettingsQuietly()" />
             </div>
             <div>
               <label class="form-label" style="display:flex;justify-content:space-between;align-items:center;">
                 <span>選擇主流 Gemini 模型（已排除過輕量模型）</span>
                 <button type="button" class="btn-icon-text" onclick="App.fetchAvailableModels()">🔄 自動偵測主流模型</button>
               </label>
-              <select class="form-select" id="aiModelSelect">
+              <select class="form-select" id="aiModelSelect" onchange="App.saveApiSettingsQuietly()">
                 <option value="gemini-3.8-flash">gemini-3.8-flash 【⭐ 非常夠用・最推薦｜速度與推理兼具】</option>
                 <option value="gemini-3.8-pro">gemini-3.8-pro 【🧠 極度夠用・深度洞察｜適合大量筆記深層推理】</option>
                 <option value="gemini-3.5-pro">gemini-3.5-pro 【🌿 標準夠用・穩定備援｜進階邏輯分析】</option>
@@ -459,18 +460,20 @@
 
           <div class="form-row-2">
             <div>
-              <label class="form-label">個人資料 Private Repo (Owner/Repo)</label>
-              <input type="text" class="form-input" id="ghRepoInput" value="johnny8dada/Life-Cat-Data" placeholder="例如：johnny8dada/Life-Cat-Data" />
+              <label class="form-label">個人資料 Private Repo (Owner/Repo，輸入即自動儲存)</label>
+              <input type="text" class="form-input" id="ghRepoInput" value="johnny8dada/Life-Cat-Data" placeholder="例如：johnny8dada/Life-Cat-Data"
+                     oninput="App.saveGithubSyncConfig()" onchange="App.saveGithubSyncConfig()" />
             </div>
             <div>
-              <label class="form-label">GitHub Personal Access Token (ghp_...)</label>
-              <input type="password" class="form-input" id="ghTokenInput" placeholder="貼上 ghp_ 或 github_pat_ 開頭的 Token" />
+              <label class="form-label">GitHub Personal Access Token (ghp_...，輸入即自動儲存)</label>
+              <input type="password" class="form-input" id="ghTokenInput" placeholder="貼上 ghp_ 或 github_pat_ 開頭的 Token"
+                     oninput="App.saveGithubSyncConfig()" onchange="App.saveGithubSyncConfig()" />
             </div>
           </div>
 
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-top:10px;">
             <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer;">
-              <input type="checkbox" id="ghAutoSyncCheckbox" onchange="App.saveGithubSyncConfig()" />
+              <input type="checkbox" id="ghAutoSyncCheckbox" onchange="App.saveGithubSyncConfig(true)" />
               <span>🔄 修改資料後自動同步至 Private Repo（推薦開啟）</span>
             </label>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -481,6 +484,11 @@
           </div>
 
           <div id="ghSyncStatusBox" class="ai-status-box hidden" style="margin-top:10px;"></div>
+
+          <!-- Built-in Sandbox Storage Inspector (Visible directly on iPhone & PC) -->
+          <div id="sandboxInspectorBox" style="margin-top:10px;padding:9px 12px;background:rgba(255,255,255,0.75);border:1px dashed var(--border-warm);border-radius:8px;font-size:12px;color:var(--ink-secondary);line-height:1.6;">
+            正在檢測本機沙盒儲存空間...
+          </div>
         </div>
 
         <label class="form-label" style="margin-top:4px;">📦 本地指定資料夾 (`data/`) 與手動備份管理</label>
@@ -494,7 +502,7 @@
         </div>
       </div>
       <div class="modal-footer">
-        <button class="btn btn-primary" onclick="App.closeModal('settingsModal')">完成</button>
+        <button class="btn btn-primary" onclick="App.saveGithubSyncConfig(true); App.closeModal('settingsModal')">💾 儲存並完成</button>
       </div>
     </div>
   </div>
