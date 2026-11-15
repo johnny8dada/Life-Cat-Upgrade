@@ -22,15 +22,22 @@ fi
 if [ -f "$DATA_FILE" ]; then
   cp "$DATA_FILE" "$BACKUP_FILE"
   python3 -c '
-import json, sys
-p = sys.argv[1]
+import json, sys, time
+p, act = sys.argv[1], sys.argv[2]
 with open(p, "r", encoding="utf-8") as f:
     d = json.load(f)
-if isinstance(d, dict) and isinstance(d.get("settings"), dict) and d["settings"].get("apiKey"):
-    d["settings"]["apiKey"] = ""
+changed = False
+if isinstance(d, dict):
+    if isinstance(d.get("settings"), dict) and d["settings"].get("apiKey"):
+        d["settings"]["apiKey"] = ""
+        changed = True
+    if act == "push":
+        d["lastModifiedAt"] = int(time.time() * 1000)
+        changed = True
+if changed:
     with open(p, "w", encoding="utf-8") as f:
         json.dump(d, f, ensure_ascii=False, indent=2)
-' "$DATA_FILE"
+' "$DATA_FILE" "$ACTION"
 fi
 
 cd "$DATA_DIR"

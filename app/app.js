@@ -50,12 +50,26 @@ const App = {
 
     this.renderAll();
     this.startLifecycleHeartbeat();
+
+    // Auto-pull latest data from Private Repo on App startup (both Desktop & iPhone)
+    this.autoPullFromGithubOnStartup("startup");
   },
 
+  _lastAutoPullCheckAt: 0,
   startLifecycleHeartbeat() {
     setInterval(() => {
       fetch("/api/heartbeat").catch(() => {});
     }, 3000);
+
+    // When iPhone App or Desktop window is reopened/resumed from background, check Private Repo if not editing
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        const now = Date.now();
+        if (now - this._lastAutoPullCheckAt > 8000 && !this._ghAutoSyncTimer && !this.isAiAnalyzing) {
+          this.autoPullFromGithubOnStartup("resume");
+        }
+      }
+    });
 
     window.addEventListener("beforeunload", (e) => {
       if (this.isAiAnalyzing) {
@@ -2455,7 +2469,7 @@ ${JSON.stringify(payload, null, 2)}
   githubSyncConfig: {
     repo: "johnny8dada/Life-Cat-Data",
     token: "",
-    autoSync: false
+    autoSync: true
   },
   _ghAutoSyncTimer: null,
 
@@ -2469,7 +2483,7 @@ ${JSON.stringify(payload, null, 2)}
           this.githubSyncConfig = {
             repo: parsed.repo || "johnny8dada/Life-Cat-Data",
             token: parsed.token || "",
-            autoSync: !!parsed.autoSync
+            autoSync: parsed.autoSync != null ? !!parsed.autoSync : true
           };
         }
       }
@@ -2484,7 +2498,7 @@ ${JSON.stringify(payload, null, 2)}
           this.githubSyncConfig = {
             repo: cfg.repo || this.githubSyncConfig.repo || "johnny8dada/Life-Cat-Data",
             token: cfg.token,
-            autoSync: cfg.autoSync != null ? !!cfg.autoSync : this.githubSyncConfig.autoSync
+            autoSync: cfg.autoSync != null ? !!cfg.autoSync : true
           };
           this.setPersistentSecret("nordic_github_sync_v1", JSON.stringify(this.githubSyncConfig));
         }
@@ -2600,6 +2614,120 @@ ${JSON.stringify(payload, null, 2)}
     return new TextDecoder("utf-8").decode(bytes);
   },
 
+  async saveDataFromCloud(cloudData, cloudSha = "") {
+    const currentApiKey = (this.data && this.data.settings && this.data.settings.apiKey) || this.getPersistentSecret("nordic_gemini_api_key") || "";
+    this.data = cloudData;
+    if (!this.data.settings) this.data.settings = { apiKey: currentApiKey, model: "gemini-3.8-flash" };
+    this.data.settings.apiKey = currentApiKey;
+
+    if (cloudSha) {
+      this.setPersistentSecret("nordic_last_synced_sha", cloudSha);
+    }
+    this.setPersistentSecret("nordic_last_synced_ts", String(this.data.lastModifiedAt || Date.now()));
+
+    try {
+      localStorage.setItem("nordic_life_blueprint_v1", JSON.stringify(this.data));
+    } catch (e) {}
+
+    // Also persist to local `data/life_blueprint.json` if running on Windows/MacBook desktop server
+    const diskCopy = JSON.parse(JSON.stringify(this.data));
+    if (diskCopy.settings) diskCopy.settings.apiKey = "";
+    try {
+      await fetch("/api/data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify(diskCopy, null, 2)
+      });
+    } catch (e) {}
+
+    if (this.data.tasks.length > 0 && !this.data.tasks.some(t => t.id === this.selectedTaskId)) {
+      this.selectedTaskId = this.data.tasks[0].id;
+    }
+    if (this.data.connections.length > 0 && !this.data.connections.some(c => c.id === this.selectedConnId)) {
+      this.selectedConnId = this.data.connections[0].id;
+    }
+    this.renderAll();
+  },
+
+  async autoPullFromGithubOnStartup(triggerReason = "startup") {
+    if (!this.githubSyncConfig || !this.githubSyncConfig.token || !this.githubSyncConfig.repo) {
+      return;
+    }
+    if (triggerReason === "resume" && !this.githubSyncConfig.autoSync) {
+      return;
+    }
+    if (this._ghAutoSyncTimer || this.isAiAnalyzing) {
+      return; // User is actively editing or running AI; do not overwrite
+    }
+    this._lastAutoPullCheckAt = Date.now();
+    const { repo, token } = this.githubSyncConfig;
+    const footerStatus = document.getElementById("saveStatusText");
+
+    try {
+      const headers = {
+        "Accept": "application/vnd.github.v3+json",
+        "Authorization": `token ${token}`
+      };
+
+      let res = await fetch(`https://api.github.com/repos/${repo}/contents/life_blueprint.json?t=${Date.now()}`, {
+        headers,
+        cache: "no-store"
+      });
+      if (res.status === 404) {
+        res = await fetch(`https://api.github.com/repos/${repo}/contents/data/life_blueprint.json?t=${Date.now()}`, {
+          headers,
+          cache: "no-store"
+        });
+      }
+      if (!res.ok) return;
+
+      const meta = await res.json();
+      if (!meta || !meta.content) return;
+
+      const jsonStr = this.base64ToUtf8(meta.content);
+      const cloudData = JSON.parse(jsonStr);
+      if (!cloudData || !Array.isArray(cloudData.pillars)) return;
+
+      const cloudTs = Number(cloudData.lastModifiedAt || 0);
+      const localTs = Number((this.data && this.data.lastModifiedAt) || 0);
+      const lastSyncedSha = this.getPersistentSecret("nordic_last_synced_sha");
+      const lastSyncedTs = Number(this.getPersistentSecret("nordic_last_synced_ts") || 0);
+      const isLocalDefaultExample = !localTs && ((this.data?.aiOverview?.lastAnalyzedAt || "").includes("預設範例"));
+
+      // Re-check user didn't start typing while fetch was in flight
+      if (this._ghAutoSyncTimer) return;
+
+      // Decide whether to update local from cloud or push newer offline local to cloud:
+      // 1. If cloud has a newer timestamp (`cloudTs > localTs`), OR local is just the example template,
+      //    OR cloud SHA changed and local has no unsynced offline edits (`localTs <= lastSyncedTs`) -> Pull cloudData!
+      if (cloudTs > localTs || isLocalDefaultExample || (meta.sha && meta.sha !== lastSyncedSha && localTs <= lastSyncedTs)) {
+        const contentChanged = JSON.stringify(cloudData.tasks) !== JSON.stringify(this.data.tasks) ||
+                               JSON.stringify(cloudData.pillars) !== JSON.stringify(this.data.pillars) ||
+                               JSON.stringify(cloudData.connections) !== JSON.stringify(this.data.connections) ||
+                               isLocalDefaultExample;
+        await this.saveDataFromCloud(cloudData, meta.sha || "");
+        const nowStr = new Date().toLocaleTimeString("zh-TW", { hour12: false });
+        if (footerStatus) {
+          footerStatus.textContent = `🟢 已於開啟時自動從 Private Repo (${repo}) 同步最新資料 (${nowStr})`;
+        }
+        if (contentChanged) {
+          this.showToast("☁️ 已自動從 GitHub Private Repo 更新最新資料！");
+        }
+      } else if (localTs > cloudTs && this.githubSyncConfig.autoSync && meta.sha !== lastSyncedSha) {
+        // Local device has newer edits made while offline -> push them up to Private Repo
+        this.pushToGithubCloud(true);
+      } else {
+        if (meta.sha) this.setPersistentSecret("nordic_last_synced_sha", meta.sha);
+        const nowStr = new Date().toLocaleTimeString("zh-TW", { hour12: false });
+        if (footerStatus) {
+          footerStatus.textContent = `🟢 本機與 Private Repo (${repo}) 已是最新同步狀態 (${nowStr})`;
+        }
+      }
+    } catch (e) {
+      // Silent fallback when offline
+    }
+  },
+
   async pullFromGithubCloud() {
     this.saveGithubSyncConfig();
     const { repo, token } = this.githubSyncConfig;
@@ -2639,18 +2767,16 @@ ${JSON.stringify(payload, null, 2)}
         throw new Error("雲端 JSON 結構格式不正確");
       }
 
-      // Preserve current device's Gemini API key
-      const currentApiKey = (this.data.settings && this.data.settings.apiKey) || localStorage.getItem("nordic_gemini_api_key") || "";
-      this.data = cloudData;
-      if (!this.data.settings) this.data.settings = { apiKey: currentApiKey, model: "gemini-3.8-flash" };
-      this.data.settings.apiKey = currentApiKey;
+      await this.saveDataFromCloud(cloudData, meta.sha || "");
+      this.showToast("☁️ 已從 Private Repo 載入最新個人資料！");
 
-      await this.saveData("☁️ 已從 Private Repo 載入個人資料並寫入本地 data/ 資料夾！");
-      this.renderAll();
-
+      const nowStr = new Date().toLocaleTimeString("zh-TW", { hour12: false });
       if (statusBox) {
-        const nowStr = new Date().toLocaleTimeString("zh-TW", { hour12: false });
         statusBox.textContent = `✅ 已於 ${nowStr} 從私人儲存庫 (${repo}) 同步最新個人資料！`;
+      }
+      const footerStatus = document.getElementById("saveStatusText");
+      if (footerStatus) {
+        footerStatus.textContent = `🟢 已從私人庫 ${repo} 載入最新資料 (${nowStr})`;
       }
     } catch (err) {
       if (statusBox) {
@@ -2712,6 +2838,7 @@ ${JSON.stringify(payload, null, 2)}
       }
 
       // 2. Sanitize API key before uploading to GitHub
+      if (!this.data.lastModifiedAt) this.data.lastModifiedAt = Date.now();
       const cleanCopy = JSON.parse(JSON.stringify(this.data));
       if (cleanCopy.settings) cleanCopy.settings.apiKey = "";
       const contentB64 = this.utf8ToBase64(JSON.stringify(cleanCopy, null, 2));
@@ -2732,6 +2859,14 @@ ${JSON.stringify(payload, null, 2)}
         const errText = await putRes.text();
         throw new Error(`HTTP ${putRes.status}: 請確認已在 GitHub 建立名為 ${repo} 的 Private Repo (${errText.slice(0, 80)})`);
       }
+
+      try {
+        const putJson = await putRes.json();
+        if (putJson && putJson.content && putJson.content.sha) {
+          this.setPersistentSecret("nordic_last_synced_sha", putJson.content.sha);
+        }
+      } catch (e) {}
+      this.setPersistentSecret("nordic_last_synced_ts", String(this.data.lastModifiedAt));
 
       const nowStr = new Date().toLocaleTimeString("zh-TW", { hour12: false });
       if (statusBox) {

@@ -473,8 +473,8 @@
 
           <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-top:10px;">
             <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;cursor:pointer;">
-              <input type="checkbox" id="ghAutoSyncCheckbox" onchange="App.saveGithubSyncConfig(true)" />
-              <span>🔄 修改資料後自動同步至 Private Repo（推薦開啟）</span>
+              <input type="checkbox" id="ghAutoSyncCheckbox" checked onchange="App.saveGithubSyncConfig(true)" />
+              <span>🔄 自動雙向同步（重開時自動拉取最新資料、編輯後自動上傳）</span>
             </label>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button type="button" class="btn btn-xs btn-soft" onclick="App.saveGithubSyncConfig(true)">💾 儲存設定</button>

@@ -33,16 +33,25 @@ if ([string]::IsNullOrWhiteSpace($Repo)) {
 
 $RemoteUrl = if ($Repo -match "^https?://") { $Repo } else { "https://github.com/$Repo.git" }
 
-# 2. 檢查並清除 life_blueprint.json 內的 apiKey 欄位（確保安全）
+# 2. 檢查並清除 life_blueprint.json 內的 apiKey 欄位（確保安全），並在 push 時更新 lastModifiedAt 時間戳
 if (Test-Path $DataFile) {
     Copy-Item $DataFile $BackupFile -Force
     try {
         $jsonObj = Get-Content $DataFile -Raw -Encoding UTF8 | ConvertFrom-Json
+        $changed = $false
         if ($jsonObj.settings -and $jsonObj.settings.apiKey) {
             $jsonObj.settings.apiKey = ""
+            $changed = $true
+            Write-Host "🔒 已自動清除 life_blueprint.json 中的 API Key 欄位。"
+        }
+        if ($Action -eq "push") {
+            $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+            $jsonObj | Add-Member -NotePropertyName "lastModifiedAt" -NotePropertyValue $nowMs -Force
+            $changed = $true
+        }
+        if ($changed) {
             $cleanJson = $jsonObj | ConvertTo-Json -Depth 20
             [System.IO.File]::WriteAllText($DataFile, $cleanJson, (New-Object System.Text.UTF8Encoding($false)))
-            Write-Host "🔒 已自動清除 life_blueprint.json 中的 API Key 欄位。"
         }
     } catch {
         Write-Warning "JSON 檢查略過: $_"
