@@ -2374,7 +2374,9 @@ const App = {
     }
   },
 
+  _apiKeyDirty: false,
   openAIAnalysisModal() {
+    this._apiKeyDirty = false;
     document.getElementById("aiApiKeyInput").value = (this.data.settings && this.data.settings.apiKey) || "";
     const currentModel = (this.data.settings && this.data.settings.model) || "gemini-3.8-flash";
     const defaultMainstream3 = ["gemini-3.8-flash", "gemini-3.8-pro", "gemini-3.5-pro"];
@@ -2441,21 +2443,17 @@ const App = {
 
   saveApiSettingsQuietly(showNotice = false) {
     if (!this.data.settings) this.data.settings = {};
-    const aiModalEl = document.getElementById("aiModal");
-    const isModalOpen = aiModalEl && !aiModalEl.classList.contains("hidden");
     const keyInput = document.getElementById("aiApiKeyInput");
     const modelInput = document.getElementById("aiModelSelect");
     if (keyInput) {
       const k = keyInput.value.trim();
-      // Only update apiKey if non-empty, preventing uninitialized DOM input from wiping a saved key
-      if (k) {
-        this.data.settings.apiKey = k;
-        this.setPersistentSecret("nordic_gemini_api_key", k);
-        fetch("/api/apikey", { method: "POST", body: k }).catch(() => {});
-      } else if (isModalOpen && this.data.settings.apiKey) {
-        // Restore input value from memory if modal was closed without typing
-        keyInput.value = this.data.settings.apiKey;
-      }
+      const existingKey = this.data.settings.apiKey || this.getPersistentSecret("nordic_gemini_api_key") || "";
+      // Never mutate keyInput.value while user is typing/deleting!
+      // Only allow empty string to overwrite if user explicitly edited the field (_apiKeyDirty === true)
+      const finalKey = (k || this._apiKeyDirty) ? k : existingKey;
+      this.data.settings.apiKey = finalKey;
+      this.setPersistentSecret("nordic_gemini_api_key", finalKey);
+      fetch("/api/apikey", { method: "POST", body: finalKey }).catch(() => {});
     }
     if (modelInput && modelInput.value) {
       this.data.settings.model = modelInput.value;
@@ -3053,7 +3051,9 @@ ${JSON.stringify(payload, null, 2)}
     this.renderSandboxInspector();
   },
 
+  _ghTokenDirty: false,
   openSettingsModal() {
+    this._ghTokenDirty = false;
     const repoInput = document.getElementById("ghRepoInput");
     const tokenInput = document.getElementById("ghTokenInput");
     const autoCheck = document.getElementById("ghAutoSyncCheckbox");
@@ -3073,11 +3073,10 @@ ${JSON.stringify(payload, null, 2)}
     const inputToken = tokenInput ? tokenInput.value.trim() : "";
     const existingToken = (this.githubSyncConfig && this.githubSyncConfig.token) || this.getPersistentSecret("nordic_github_pat_token") || "";
 
-    // CRITICAL PROTECTION: Never allow an empty DOM input to wipe out an already-saved Token!
-    const finalToken = inputToken || existingToken;
-    if (!inputToken && existingToken && tokenInput) {
-      tokenInput.value = existingToken;
-    }
+    // Never mutate tokenInput.value while the user is typing or deleting!
+    // If the user explicitly edited the field (_ghTokenDirty === true), allow clearing to "";
+    // otherwise keep existingToken if inputToken is empty.
+    const finalToken = (inputToken || this._ghTokenDirty) ? inputToken : existingToken;
 
     this.githubSyncConfig = {
       repo: inputRepo || (this.githubSyncConfig && this.githubSyncConfig.repo) || "johnny8dada/Life-Cat-Data",
@@ -3085,9 +3084,7 @@ ${JSON.stringify(payload, null, 2)}
       autoSync: autoCheck ? !!autoCheck.checked : true
     };
     this.setPersistentSecret("nordic_github_sync_v1", JSON.stringify(this.githubSyncConfig));
-    if (finalToken) {
-      this.setPersistentSecret("nordic_github_pat_token", finalToken);
-    }
+    this.setPersistentSecret("nordic_github_pat_token", finalToken);
     fetch("/api/github-sync-config", {
       method: "POST",
       headers: { "Content-Type": "application/json; charset=utf-8" },

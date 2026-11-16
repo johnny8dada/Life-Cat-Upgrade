@@ -347,7 +347,7 @@
             <div>
               <label class="form-label">Google Gemini API Key（輸入即自動寫入本機沙盒）</label>
               <input type="password" class="form-input" id="aiApiKeyInput" placeholder="貼上 AIzaSy... 開頭的 API Key"
-                     oninput="App.saveApiSettingsQuietly()" onchange="App.saveApiSettingsQuietly()" />
+                     oninput="App._apiKeyDirty = true; App.saveApiSettingsQuietly()" onchange="App._apiKeyDirty = true; App.saveApiSettingsQuietly()" />
             </div>
             <div>
               <label class="form-label" style="display:flex;justify-content:space-between;align-items:center;">
@@ -475,7 +475,7 @@
             <div>
               <label class="form-label">GitHub Personal Access Token (ghp_...，輸入即自動儲存)</label>
               <input type="password" class="form-input" id="ghTokenInput" placeholder="貼上 ghp_ 或 github_pat_ 開頭的 Token"
-                     oninput="App.saveGithubSyncConfig()" onchange="App.saveGithubSyncConfig()" />
+                     oninput="App._ghTokenDirty = true; App.saveGithubSyncConfig()" onchange="App._ghTokenDirty = true; App.saveGithubSyncConfig()" />
             </div>
           </div>
 
