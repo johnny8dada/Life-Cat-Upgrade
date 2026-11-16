@@ -86,14 +86,59 @@ const App = {
     });
   },
 
+  _openSecretVaultDB() {
+    return new Promise((resolve) => {
+      if (!window.indexedDB) return resolve(null);
+      try {
+        const req = indexedDB.open("NordicBlueprintVault", 1);
+        req.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains("secrets")) {
+            db.createObjectStore("secrets");
+          }
+        };
+        req.onsuccess = (e) => resolve(e.target.result);
+        req.onerror = () => resolve(null);
+      } catch (err) {
+        resolve(null);
+      }
+    });
+  },
+
+  async _idbSet(key, val) {
+    try {
+      const db = await this._openSecretVaultDB();
+      if (!db) return;
+      const tx = db.transaction("secrets", "readwrite");
+      tx.objectStore("secrets").put(val, key);
+    } catch (e) {}
+  },
+
+  async _idbGet(key) {
+    try {
+      const db = await this._openSecretVaultDB();
+      if (!db) return "";
+      return await new Promise((resolve) => {
+        const tx = db.transaction("secrets", "readonly");
+        const req = tx.objectStore("secrets").get(key);
+        req.onsuccess = () => resolve(req.result || "");
+        req.onerror = () => resolve("");
+      });
+    } catch (e) {
+      return "";
+    }
+  },
+
   setPersistentSecret(key, val) {
     try {
       localStorage.setItem(key, val);
     } catch (e) {}
     try {
       const encoded = encodeURIComponent(val);
-      document.cookie = `${key}=${encoded}; max-age=31536000; path=/; SameSite=Lax`;
+      const secureFlag = window.location.protocol === "https:" ? "; Secure" : "";
+      document.cookie = `${key}=${encoded}; max-age=31536000; path=/; SameSite=Lax${secureFlag}`;
     } catch (e) {}
+    this._idbSet(key, val);
   },
 
   getPersistentSecret(key) {
@@ -113,7 +158,28 @@ const App = {
     return val;
   },
 
+  async getPersistentSecretAsync(key) {
+    let val = this.getPersistentSecret(key);
+    if (!val) {
+      val = await this._idbGet(key);
+      if (val) {
+        this.setPersistentSecret(key, val);
+      }
+    } else {
+      // Ensure IndexedDB also has a copy of existing localStorage/Cookie secret
+      this._idbSet(key, val);
+    }
+    return val;
+  },
+
   async loadData() {
+    // Request persistent storage quota from iOS Safari / WebKit so sandbox is not evicted
+    try {
+      if (navigator.storage && navigator.storage.persist) {
+        navigator.storage.persist().catch(() => {});
+      }
+    } catch (e) {}
+
     let serverData = null;
     this.isLocalServerAvailable = false;
     try {
@@ -169,7 +235,7 @@ const App = {
       }
     }
 
-    // Load local secret API key from /api/apikey or localStorage/Cookie BEFORE migrateModelSetting
+    // Load local secret API key from /api/apikey or localStorage/Cookie/IndexedDB BEFORE migrateModelSetting
     if (!this.data.settings) this.data.settings = { apiKey: "", model: "gemini-3.8-flash" };
     try {
       const kRes = await fetch("/api/apikey");
@@ -182,11 +248,15 @@ const App = {
       }
     } catch (e) {}
     if (!this.data.settings.apiKey) {
-      this.data.settings.apiKey = this.getPersistentSecret("nordic_gemini_api_key") || "";
+      this.data.settings.apiKey = (await this.getPersistentSecretAsync("nordic_gemini_api_key")) || "";
+    }
+    const apiKeyInputEl = document.getElementById("aiApiKeyInput");
+    if (apiKeyInputEl && this.data.settings.apiKey) {
+      apiKeyInputEl.value = this.data.settings.apiKey;
     }
 
-    this.migrateModelSetting();
     await this.loadGithubSyncConfig();
+    this.migrateModelSetting();
   },
 
   async fetchExampleOrSeedData() {
@@ -2371,14 +2441,20 @@ const App = {
 
   saveApiSettingsQuietly(showNotice = false) {
     if (!this.data.settings) this.data.settings = {};
+    const aiModalEl = document.getElementById("aiModal");
+    const isModalOpen = aiModalEl && !aiModalEl.classList.contains("hidden");
     const keyInput = document.getElementById("aiApiKeyInput");
     const modelInput = document.getElementById("aiModelSelect");
     if (keyInput) {
       const k = keyInput.value.trim();
-      this.data.settings.apiKey = k;
-      this.setPersistentSecret("nordic_gemini_api_key", k);
+      // Only update apiKey if non-empty, preventing uninitialized DOM input from wiping a saved key
       if (k) {
+        this.data.settings.apiKey = k;
+        this.setPersistentSecret("nordic_gemini_api_key", k);
         fetch("/api/apikey", { method: "POST", body: k }).catch(() => {});
+      } else if (isModalOpen && this.data.settings.apiKey) {
+        // Restore input value from memory if modal was closed without typing
+        keyInput.value = this.data.settings.apiKey;
       }
     }
     if (modelInput && modelInput.value) {
@@ -2924,9 +3000,9 @@ ${JSON.stringify(payload, null, 2)}
   _ghAutoSyncTimer: null,
 
   async loadGithubSyncConfig() {
-    // 1. Try localStorage + Cookie (via getPersistentSecret) first
+    // 1. Try localStorage + Cookie + IndexedDB (via getPersistentSecretAsync) first
     try {
-      const raw = this.getPersistentSecret("nordic_github_sync_v1");
+      const raw = await this.getPersistentSecretAsync("nordic_github_sync_v1");
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && typeof parsed === "object") {
@@ -2936,6 +3012,16 @@ ${JSON.stringify(payload, null, 2)}
             autoSync: parsed.autoSync != null ? !!parsed.autoSync : true
           };
         }
+      }
+      // Also check dedicated standalone backup key `nordic_github_pat_token`
+      if (!this.githubSyncConfig.token) {
+        const backupToken = await this.getPersistentSecretAsync("nordic_github_pat_token");
+        if (backupToken) {
+          this.githubSyncConfig.token = backupToken;
+          this.setPersistentSecret("nordic_github_sync_v1", JSON.stringify(this.githubSyncConfig));
+        }
+      } else {
+        this.setPersistentSecret("nordic_github_pat_token", this.githubSyncConfig.token);
       }
     } catch (e) {}
 
@@ -2951,9 +3037,18 @@ ${JSON.stringify(payload, null, 2)}
             autoSync: cfg.autoSync != null ? !!cfg.autoSync : true
           };
           this.setPersistentSecret("nordic_github_sync_v1", JSON.stringify(this.githubSyncConfig));
+          this.setPersistentSecret("nordic_github_pat_token", cfg.token);
         }
       }
     } catch (e) {}
+
+    // CRITICAL: Immediately populate the DOM inputs on startup so they are never empty in the background!
+    const repoInput = document.getElementById("ghRepoInput");
+    const tokenInput = document.getElementById("ghTokenInput");
+    const autoCheck = document.getElementById("ghAutoSyncCheckbox");
+    if (repoInput) repoInput.value = this.githubSyncConfig.repo || "johnny8dada/Life-Cat-Data";
+    if (tokenInput && this.githubSyncConfig.token) tokenInput.value = this.githubSyncConfig.token;
+    if (autoCheck) autoCheck.checked = !!this.githubSyncConfig.autoSync;
 
     this.renderSandboxInspector();
   },
@@ -2973,12 +3068,26 @@ ${JSON.stringify(payload, null, 2)}
     const repoInput = document.getElementById("ghRepoInput");
     const tokenInput = document.getElementById("ghTokenInput");
     const autoCheck = document.getElementById("ghAutoSyncCheckbox");
+
+    const inputRepo = repoInput ? repoInput.value.trim() : "";
+    const inputToken = tokenInput ? tokenInput.value.trim() : "";
+    const existingToken = (this.githubSyncConfig && this.githubSyncConfig.token) || this.getPersistentSecret("nordic_github_pat_token") || "";
+
+    // CRITICAL PROTECTION: Never allow an empty DOM input to wipe out an already-saved Token!
+    const finalToken = inputToken || existingToken;
+    if (!inputToken && existingToken && tokenInput) {
+      tokenInput.value = existingToken;
+    }
+
     this.githubSyncConfig = {
-      repo: (repoInput ? repoInput.value.trim() : "") || "johnny8dada/Life-Cat-Data",
-      token: tokenInput ? tokenInput.value.trim() : "",
-      autoSync: autoCheck ? !!autoCheck.checked : false
+      repo: inputRepo || (this.githubSyncConfig && this.githubSyncConfig.repo) || "johnny8dada/Life-Cat-Data",
+      token: finalToken,
+      autoSync: autoCheck ? !!autoCheck.checked : true
     };
     this.setPersistentSecret("nordic_github_sync_v1", JSON.stringify(this.githubSyncConfig));
+    if (finalToken) {
+      this.setPersistentSecret("nordic_github_pat_token", finalToken);
+    }
     fetch("/api/github-sync-config", {
       method: "POST",
       headers: { "Content-Type": "application/json; charset=utf-8" },
@@ -2986,7 +3095,7 @@ ${JSON.stringify(payload, null, 2)}
     }).catch(() => {});
     this.renderSandboxInspector();
     if (showNotice) {
-      this.showToast("💾 已寫入本機沙盒 (LocalStorage + Cookie 雙重保存)");
+      this.showToast("💾 已寫入本機沙盒 (LocalStorage + Cookie + IndexedDB 三重保存)");
     }
   },
 
@@ -3237,7 +3346,9 @@ ${JSON.stringify(payload, null, 2)}
   },
 
   async pushToGithubCloud(silent = false) {
-    this.saveGithubSyncConfig();
+    if (!silent) {
+      this.saveGithubSyncConfig();
+    }
     const { repo, token } = this.githubSyncConfig;
     const statusBox = document.getElementById("ghSyncStatusBox");
 
